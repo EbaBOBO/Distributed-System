@@ -33,3 +33,28 @@ func TestPhysicalConcurrentEventsHappenBefore(t *testing.T) {
 		t.Errorf("c2 should happen before c3")
 	}
 }
+
+func TestResolveConcurrentEvents(t *testing.T) {
+	r := testCreatePhysicalClockConflictResolver()
+	kv1 := KV[PhysicalClock]{
+		Key:   "a",
+		Value: "b",
+		Clock: PhysicalClock{timestamp: 11}}
+	kv2 := KV[PhysicalClock]{
+		Key:   "a",
+		Value: "c",
+		Clock: PhysicalClock{timestamp: 11}}
+	kv3 := KV[PhysicalClock]{
+		Key:   "a",
+		Value: "c",
+		Clock: PhysicalClock{timestamp: 15}}
+
+	res, _ := r.ResolveConcurrentEvents(&kv1, &kv2)
+	if res.Value != "c" {
+		t.Errorf("Should return kv2")
+	}
+	res, _ = r.ResolveConcurrentEvents(&kv2, &kv3)
+	if res.Clock.timestamp != 15 {
+		t.Errorf("Should return kv3")
+	}
+}

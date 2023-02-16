@@ -1,6 +1,7 @@
 package conflict
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"modist/orchestrator/node"
@@ -51,7 +52,17 @@ func (v VersionVectorClock) HappensBefore(other Clock) bool {
 	otherVector := other.(VersionVectorClock)
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return false
+	for k, val := range v.vector {
+		if otherVector.vector[k] < val {
+			return false
+		}
+	}
+	for k, val := range otherVector.vector {
+		if v.vector[k] > val {
+			return false
+		}
+	}
+	return true
 }
 
 // Version vector implementation of a ConflictResolver. Might need to keep some state in here
@@ -99,12 +110,24 @@ func max[T constraints.Ordered](x T, y T) T {
 func (v *VersionVectorConflictResolver) OnMessageReceive(clock VersionVectorClock) {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
+	v.mu.Lock()
+	var max_value uint64 = 0
+	for _, val := range clock.vector {
+		max_value = max(max_value, val)
+	}
+	v.vector[v.nodeID] = max(v.vector[v.nodeID], max_value)
+	v.vector[v.nodeID] += 1
+	v.mu.Unlock()
 }
 
 // OnMessageSend is called before an RPC is sent to any other node. The version vector should be
 // incremented for the local node.
 func (v *VersionVectorConflictResolver) OnMessageSend() {
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
+	v.mu.Lock()
+	v.vector[v.nodeID] += 1
+	v.mu.Unlock()
+
 }
 
 func (v *VersionVectorConflictResolver) OnEvent() {
@@ -118,7 +141,13 @@ func (v *VersionVectorConflictResolver) OnEvent() {
 func (v *VersionVectorConflictResolver) NewClock() VersionVectorClock {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return VersionVectorClock{}
+	var newClk VersionVectorClock = VersionVectorClock{}
+	v.mu.Lock()
+	for k, val := range v.vector {
+		newClk.vector[k] = val
+	}
+	v.mu.Unlock()
+	return newClk
 }
 
 // ZeroClock returns a clock that happens before (or is concurrent with) all other clocks.
@@ -141,5 +170,19 @@ func (v *VersionVectorConflictResolver) ResolveConcurrentEvents(
 	conflicts ...*KV[VersionVectorClock]) (*KV[VersionVectorClock], error) {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return nil, nil
+	if conflicts == nil {
+		return nil, errors.New("No input conflicts,")
+	}
+	var winner KV[VersionVectorClock] = KV[VersionVectorClock]{
+		Key:   conflicts[0].Key,
+		Value: conflicts[0].Value,
+		Clock: conflicts[0].Clock,
+	}
+	for i := 1; i < len(conflicts); i++ {
+		winner.Value = max(winner.Value, conflicts[i].Value)
+		for k, val := range conflicts[i].Clock.vector {
+			winner.Clock.vector[k] = max(winner.Clock.vector[k], val)
+		}
+	}
+	return &winner, nil
 }
