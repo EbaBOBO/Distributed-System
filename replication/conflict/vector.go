@@ -52,16 +52,40 @@ func (v VersionVectorClock) HappensBefore(other Clock) bool {
 	otherVector := other.(VersionVectorClock)
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	for k, val := range v.vector {
-		if otherVector.vector[k] < val {
-			return false
+	if len(v.vector) == 0 && len(otherVector.vector) == 0 {
+		return false
+	}
+	v1 := v.vector
+	v2 := otherVector.vector
+
+	for k := range v.vector {
+		_, ok := otherVector.vector[k]
+		if !ok {
+			v2[k] = 0
 		}
 	}
-	for k, val := range otherVector.vector {
-		if v.vector[k] > val {
-			return false
+
+	for k := range otherVector.vector {
+		_, ok := v.vector[k]
+		if !ok {
+			v1[k] = 0
 		}
 	}
+
+	equalCnt := 0
+	for k, v := range v1 {
+		if v > v2[k] {
+			return false
+		}
+		if v == v2[k] {
+			equalCnt++
+		}
+	}
+
+	if equalCnt == len(v1) {
+		return false
+	}
+
 	return true
 }
 
