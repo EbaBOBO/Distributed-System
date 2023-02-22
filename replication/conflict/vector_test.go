@@ -68,8 +68,8 @@ func TestOnMessageReceive(t *testing.T) {
 	clk := VersionVectorClock{
 		vector: make(map[uint64]uint64),
 	}
-	clk.vector[5] = 2
-
+	clk.vector[3] = 2
+	clk.vector[2] = 4
 	r := VersionVectorConflictResolver{
 		nodeID: 1,
 		mu:     sync.Mutex{},
@@ -79,7 +79,7 @@ func TestOnMessageReceive(t *testing.T) {
 	r.vector[2] = 3
 
 	r.OnMessageReceive(clk)
-	if r.vector[1] != 4 {
-		t.Errorf("Local node clock should be 4")
+	if r.vector[1] != 2 || r.vector[2] != 4 || r.vector[3] != 2 {
+		t.Errorf("Incorrect result from OnMessageReceive")
 	}
 }
