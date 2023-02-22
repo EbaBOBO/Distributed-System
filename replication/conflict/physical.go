@@ -80,7 +80,7 @@ func (c *PhysicalClockConflictResolver) ResolveConcurrentEvents(conflicts ...*KV
 		return nil, errors.New("No conflicts are given, ")
 	}
 	eventualKV := conflicts[0]
-	for i := 1; i < len(conflicts); i ++ {
+	for i := 1; i < len(conflicts); i++ {
 		if eventualKV.Clock.HappensBefore(conflicts[i].Clock) {
 			eventualKV = conflicts[i]
 		}
