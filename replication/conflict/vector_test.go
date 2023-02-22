@@ -1,6 +1,7 @@
 package conflict
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -59,5 +60,26 @@ func TestVectorHappensBeforeZeroAndEmptyVectors(t *testing.T) {
 	}
 	if v2.HappensBefore(v1) {
 		t.Errorf("v2 does not happen before v1 since v2 entries are 0")
+	}
+}
+
+func TestOnMessageReceive(t *testing.T) {
+
+	clk := VersionVectorClock{
+		vector: make(map[uint64]uint64),
+	}
+	clk.vector[5] = 2
+
+	r := VersionVectorConflictResolver{
+		nodeID: 1,
+		mu:     sync.Mutex{},
+		vector: make(map[uint64]uint64),
+	}
+	r.vector[1] = 1
+	r.vector[2] = 3
+
+	r.OnMessageReceive(clk)
+	if r.vector[1] != 4 {
+		t.Errorf("Local node clock should be 4")
 	}
 }
