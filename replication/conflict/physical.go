@@ -1,8 +1,10 @@
 package conflict
 
 import (
+	"errors"
 	"fmt"
 	pb "modist/proto"
+	"time"
 )
 
 // PhysicalClock is the Clock that we use to implement eventual consistency. The timestamp is a
@@ -33,6 +35,9 @@ func (c PhysicalClock) HappensBefore(other Clock) bool {
 	otherClock := other.(PhysicalClock)
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
+	if c.timestamp < otherClock.timestamp {
+		return true
+	}
 	return false
 }
 
@@ -49,7 +54,9 @@ type PhysicalClockConflictResolver struct {
 func (c *PhysicalClockConflictResolver) NewClock() PhysicalClock {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return PhysicalClock{}
+	return PhysicalClock{
+		timestamp: uint64(time.Now().UnixNano()),
+	}
 }
 
 // ZeroClock returns a clock that happens before (or is concurrent with) all other clocks.
@@ -69,5 +76,19 @@ func (c *PhysicalClockConflictResolver) ZeroClock() PhysicalClock {
 func (c *PhysicalClockConflictResolver) ResolveConcurrentEvents(conflicts ...*KV[PhysicalClock]) (*KV[PhysicalClock], error) {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return nil, nil
+	if conflicts == nil || len(conflicts) == 0 {
+		return nil, errors.New("No conflicts are given, ")
+	}
+	eventualKV := conflicts[0]
+	for i := 1; i < len(conflicts); i++ {
+		if eventualKV.Clock.HappensBefore(conflicts[i].Clock) {
+			eventualKV = conflicts[i]
+		}
+		if eventualKV.Clock.Equals(conflicts[i].Clock) {
+			if eventualKV.Value < conflicts[i].Value {
+				eventualKV = conflicts[i]
+			}
+		}
+	}
+	return eventualKV, nil
 }

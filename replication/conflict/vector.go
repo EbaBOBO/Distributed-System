@@ -1,6 +1,7 @@
 package conflict
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"modist/orchestrator/node"
@@ -51,7 +52,41 @@ func (v VersionVectorClock) HappensBefore(other Clock) bool {
 	otherVector := other.(VersionVectorClock)
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return false
+	if len(v.vector) == 0 && len(otherVector.vector) == 0 {
+		return false
+	}
+	v1 := v.vector
+	v2 := otherVector.vector
+
+	for k := range v.vector {
+		_, ok := otherVector.vector[k]
+		if !ok {
+			v2[k] = 0
+		}
+	}
+
+	for k := range otherVector.vector {
+		_, ok := v.vector[k]
+		if !ok {
+			v1[k] = 0
+		}
+	}
+
+	equalCnt := 0
+	for k, v := range v1 {
+		if v > v2[k] {
+			return false
+		}
+		if v == v2[k] {
+			equalCnt++
+		}
+	}
+
+	if equalCnt == len(v1) {
+		return false
+	}
+
+	return true
 }
 
 // Version vector implementation of a ConflictResolver. Might need to keep some state in here
@@ -99,12 +134,22 @@ func max[T constraints.Ordered](x T, y T) T {
 func (v *VersionVectorConflictResolver) OnMessageReceive(clock VersionVectorClock) {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
+	v.mu.Lock()
+	for k, val := range clock.vector {
+		v.vector[k] = max(v.vector[k], val)
+	}
+	v.vector[v.nodeID] += 1
+	v.mu.Unlock()
 }
 
 // OnMessageSend is called before an RPC is sent to any other node. The version vector should be
 // incremented for the local node.
 func (v *VersionVectorConflictResolver) OnMessageSend() {
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
+	v.mu.Lock()
+	v.vector[v.nodeID] += 1
+	v.mu.Unlock()
+
 }
 
 func (v *VersionVectorConflictResolver) OnEvent() {
@@ -118,7 +163,13 @@ func (v *VersionVectorConflictResolver) OnEvent() {
 func (v *VersionVectorConflictResolver) NewClock() VersionVectorClock {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return VersionVectorClock{}
+	var newClk VersionVectorClock = VersionVectorClock{}
+	v.mu.Lock()
+	for k, val := range v.vector {
+		newClk.vector[k] = val
+	}
+	v.mu.Unlock()
+	return newClk
 }
 
 // ZeroClock returns a clock that happens before (or is concurrent with) all other clocks.
@@ -141,5 +192,19 @@ func (v *VersionVectorConflictResolver) ResolveConcurrentEvents(
 	conflicts ...*KV[VersionVectorClock]) (*KV[VersionVectorClock], error) {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	return nil, nil
+	if conflicts == nil || len(conflicts) == 0 {
+		return nil, errors.New("No conflicts are given, ")
+	}
+	var winner KV[VersionVectorClock] = KV[VersionVectorClock]{
+		Key:   conflicts[0].Key,
+		Value: conflicts[0].Value,
+		Clock: conflicts[0].Clock,
+	}
+	for i := 1; i < len(conflicts); i++ {
+		winner.Value = max(winner.Value, conflicts[i].Value)
+		for k, val := range conflicts[i].Clock.vector {
+			winner.Clock.vector[k] = max(winner.Clock.vector[k], val)
+		}
+	}
+	return &winner, nil
 }
