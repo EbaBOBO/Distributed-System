@@ -136,13 +136,13 @@ func (v *VersionVectorConflictResolver) OnMessageReceive(clock VersionVectorCloc
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
 	v.mu.Lock()
 	var max_value uint64 = 0
-	for _, val := range clock.vector {
+	for k, val := range clock.vector {
 		max_value = max(max_value, val)
+		if k != v.nodeID {
+			v.vector[k] = max(v.vector[k], val)
+		}
 	}
-	for _, val := range v.vector {
-		max_value = max(max_value, val)
-	}
-	v.vector[v.nodeID] = max_value
+	v.vector[v.nodeID] = max(v.vector[v.nodeID], max_value)
 	v.vector[v.nodeID] += 1
 	v.mu.Unlock()
 }
@@ -154,7 +154,6 @@ func (v *VersionVectorConflictResolver) OnMessageSend() {
 	v.mu.Lock()
 	v.vector[v.nodeID] += 1
 	v.mu.Unlock()
-
 }
 
 func (v *VersionVectorConflictResolver) OnEvent() {
