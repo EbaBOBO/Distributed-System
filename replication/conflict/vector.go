@@ -170,8 +170,8 @@ func (v *VersionVectorConflictResolver) ResolveConcurrentEvents(
 	conflicts ...*KV[VersionVectorClock]) (*KV[VersionVectorClock], error) {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	if conflicts == nil {
-		return nil, errors.New("No input conflicts,")
+	if conflicts == nil || len(conflicts) == 0 {
+		return nil, errors.New("No conflicts are given, ")
 	}
 	var winner KV[VersionVectorClock] = KV[VersionVectorClock]{
 		Key:   conflicts[0].Key,

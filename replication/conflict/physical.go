@@ -76,7 +76,7 @@ func (c *PhysicalClockConflictResolver) ZeroClock() PhysicalClock {
 func (c *PhysicalClockConflictResolver) ResolveConcurrentEvents(conflicts ...*KV[PhysicalClock]) (*KV[PhysicalClock], error) {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	if conflicts == nil {
+	if conflicts == nil || len(conflicts) == 0 {
 		return nil, errors.New("No conflicts are given, ")
 	}
 	eventualKV := conflicts[0]
