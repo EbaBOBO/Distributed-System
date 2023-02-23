@@ -319,21 +319,43 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 	s.log.Printf("GetReplicatedKey: key %s with clock %v", r.Key, clientClock)
 
 	// TODO(students): [Leaderless] Implement me!
-
-	// err := s.dispatchToPeers(ctx, s.R, func(ctx context.Context, replicaNodeID uint64) error {
-	// 	conn := s.node.PeerConns[replicaNodeID]
-	// 	replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
-	// 	pbKey := pb.Key {
-	// 		Key: r.Key,
-	// 		Clock: clientClock.Proto(),
-	// 	}
-	// 	reply, r := replicaRPCClient.HandlePeerRead(ctx, &pbKey, nil)
-
-	// })
-	// getReply := pb.GetReply {
-	// 	Value:
-	// }
-	return nil, errors.New("not implemented")
+	var replies []*pb.HandlePeerReadReply
+	kvPairs := make(map[uint64]*conflict.KV[T])
+	err := s.dispatchToPeers(ctx, s.R, func(ctx context.Context, replicaNodeID uint64) error {
+		conn := s.node.PeerConns[replicaNodeID]
+		replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
+		pbKey := pb.Key{
+			Key:   r.Key,
+			Clock: clientClock.Proto(),
+		}
+		reply, e := replicaRPCClient.HandlePeerRead(ctx, &pbKey, nil)
+		if e == nil {
+			kvPairs[replicaNodeID] = conflict.KVFromProto[T](reply.GetResolvableKv())
+			replies = append(replies, reply)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(replies) == 0 {
+		return nil, errors.New("No replies")
+	}
+	latestClk := conflict.ClockFromProto[T](replies[0].ResolvableKv.GetClock())
+	latestKV := conflict.KVFromProto[T](replies[0].GetResolvableKv())
+	for i := 2; i < len(replies); i++ {
+		clk := conflict.ClockFromProto[T](replies[i].ResolvableKv.GetClock())
+		if latestClk.HappensBefore(clk) {
+			latestClk = clk
+			latestKV = conflict.KVFromProto[T](replies[i].GetResolvableKv())
+		}
+	}
+	s.PerformReadRepair(ctx, latestKV, kvPairs)
+	pbReply := pb.GetReply{
+		Value: latestKV.Value,
+		Clock: latestClk.Proto(),
+	}
+	return &pbReply, nil
 }
 
 // ======================================
