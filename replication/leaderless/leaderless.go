@@ -198,8 +198,8 @@ func (s *State[T]) ReplicateKey(ctx context.Context, kv *pb.PutRequest) (*pb.Put
 
 	// TODO(students): [Leaderless] Implement me!
 
-	err := s.dispatchToPeers(ctx, s.W, func(ctx context.Context, replicaNodeId uint64) error {
-		return s.replicateToNode(ctx, newKV, replicaNodeId)
+	err := s.dispatchToPeers(ctx, s.W, func(_ctx context.Context, replicaNodeId uint64) error {
+		return s.replicateToNode(_ctx, newKV, replicaNodeId)
 	})
 	reply := pb.PutReply{
 		Clock: clientClock.Proto(),
@@ -226,11 +226,13 @@ func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.Han
 	// TODO(students): [Leaderless] Implement me!
 	localKV, found := s.getUpToDateKV(requestKey, requestClock)
 	if found {
+		s.log.Printf("Found key %v with value %v", localKV.Key, localKV.Value)
 		return &pb.HandlePeerReadReply{
 			ResolvableKv: localKV.Proto(),
 			Found:        found,
 		}, nil
 	}
+	s.log.Printf("Key doesn't exist")
 	return &pb.HandlePeerReadReply{
 		Found: found,
 	}, errors.New("Key doesn't exist")
@@ -343,6 +345,7 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 		}
 		return nil
 	})
+	s.log.Printf("Get %v replies", len(replies))
 	if err != nil {
 		return nil, err
 	}
