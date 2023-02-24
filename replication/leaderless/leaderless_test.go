@@ -144,3 +144,33 @@ func TestReadNonexistentKeys(t *testing.T) {
 		t.Fatalf("Value mismatch: expected empty string, got %v", kv.GetValue())
 	}
 }
+
+// func TestGetUpToDate(t *testing.T) {
+// 	nodes := node.Create([]string{"localhost:1234", "localhost:1235", "localhost:1236"})
+// 	var replicators []*State[conflict.PhysicalClock]
+
+// 	for _, node := range nodes {
+// 		replicator := Configure[conflict.PhysicalClock](
+// 			testCreatePhysicalClockArgs(node, 2, 2),
+// 		)
+// 		replicators = append(replicators, replicator)
+// 	}
+
+// 	firstReplicator := replicators[0]
+
+// 	response1, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
+// 		Key: "foo", Value: "bar1", Clock: &pb.Clock{Timestamp: 10}})
+// 	if err != nil {
+// 		t.Fatalf("Error while replicating key to node 0: %v", err)
+// 	}
+// 	log.Printf("response clock is %v", response1.GetClock())
+
+// 	kv, err := firstReplicator.GetReplicatedKey(context.Background(),
+// 		&pb.GetRequest{Key: "foo", Metadata: &pb.GetMetadata{Clock: &pb.Clock{Timestamp: 1}}})
+
+// 	if kv != nil {
+
+// 		t.Fatalf("")
+// 	}
+
+// }
