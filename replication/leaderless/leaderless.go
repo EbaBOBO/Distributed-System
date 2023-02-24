@@ -42,9 +42,13 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 
 	localClk := s.conflictResolver.NewClock()
 
-	tx := s.localStore.BeginTx(true)
+	tx := s.localStore.BeginTx(false)
 	defer tx.Commit()
-
+	// KV doesn't exist in local store
+	if _, ok := tx.Get(newKV.Key); !ok {
+		tx.Put(newKV.Key, newKV)
+		return true, newKV, nil
+	}
 	// newKV is newer
 	if localClk.HappensBefore(newKV.Clock) {
 		tx.Put(newKV.Key, newKV)
@@ -157,7 +161,7 @@ func (s *State[T]) replicateToNode(ctx context.Context, kv *conflict.KV[T], repl
 	replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
 	s.onMessageSend()
 	err := s.withRetries(func() error {
-		reply, e := replicaRPCClient.HandlePeerWrite(ctx, kv.Proto(), nil)
+		reply, e := replicaRPCClient.HandlePeerWrite(ctx, kv.Proto())
 		if e != nil {
 			return e
 		}
@@ -255,7 +259,7 @@ func (s *State[T]) readFromNode(ctx context.Context, key string, replicaNodeID u
 	var reply *pb.HandlePeerReadReply
 	err := s.withRetries(func() error {
 		var e error
-		reply, e = replicaRPCClient.HandlePeerRead(ctx, &pbKey, nil)
+		reply, e = replicaRPCClient.HandlePeerRead(ctx, &pbKey)
 		return e
 	}, 3)
 	if err != nil {
@@ -288,7 +292,7 @@ func (s *State[T]) PerformReadRepair(ctx context.Context, latestKV *conflict.KV[
 		go func(id uint64) {
 			conn := s.node.PeerConns[id]
 			replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
-			replicaRPCClient.HandlePeerWrite(ctx, latestKV.Proto(), nil)
+			replicaRPCClient.HandlePeerWrite(ctx, latestKV.Proto())
 			wg.Done()
 		}(replicaNodeID)
 	}
@@ -328,7 +332,7 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 			Key:   r.Key,
 			Clock: clientClock.Proto(),
 		}
-		reply, e := replicaRPCClient.HandlePeerRead(ctx, &pbKey, nil)
+		reply, e := replicaRPCClient.HandlePeerRead(ctx, &pbKey)
 		if e == nil {
 			kvPairs[replicaNodeID] = conflict.KVFromProto[T](reply.GetResolvableKv())
 			replies = append(replies, reply)
