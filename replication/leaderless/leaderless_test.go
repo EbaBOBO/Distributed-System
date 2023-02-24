@@ -136,8 +136,8 @@ func TestReadNonexistentKeys(t *testing.T) {
 	log.Printf("response clock is %v", response.GetClock())
 	kv, err := firstReplicator.GetReplicatedKey(context.Background(),
 		&pb.GetRequest{Key: "nonexist", Metadata: &pb.GetMetadata{Clock: response.GetClock()}})
-	if err != nil {
-		t.Fatalf("Error while getting key from node 1: %v", err)
+	if err == nil {
+		t.Fatalf("Expected error while reading non-existent key")
 	}
 
 	if kv.GetValue() != "" {
