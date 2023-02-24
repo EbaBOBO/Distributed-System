@@ -102,7 +102,10 @@ func (s *State[T]) getUpToDateKV(key string, minimumClock T) (kv *conflict.KV[T]
 	defer tx.Commit()
 	kv, ok := tx.Get(key)
 	if !ok {
-		return nil, false
+		return &conflict.KV[T]{
+			Key:   key,
+			Value: "",
+		}, false
 	}
 	return kv, true
 }
@@ -225,11 +228,10 @@ func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.Han
 
 	// TODO(students): [Leaderless] Implement me!
 	localKV, found := s.getUpToDateKV(requestKey, requestClock)
-	reply := pb.HandlePeerReadReply{
+	return &pb.HandlePeerReadReply{
 		ResolvableKv: localKV.Proto(),
 		Found:        found,
-	}
-	return &reply, nil
+	}, nil
 }
 
 // readFromNode performs a remote read from the specified node, with 3 retries.

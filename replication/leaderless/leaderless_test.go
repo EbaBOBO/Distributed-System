@@ -110,3 +110,37 @@ func TestBasicReadRepair(t *testing.T) {
 		}
 	}
 }
+
+func TestReadNonexistentKeys(t *testing.T) {
+	nodes := node.Create([]string{"localhost:1234", "localhost:1235", "localhost:1236"})
+	var replicators []*State[conflict.PhysicalClock]
+
+	for _, node := range nodes {
+		replicator := Configure[conflict.PhysicalClock](
+			testCreatePhysicalClockArgs(node, 2, 2),
+		)
+		replicators = append(replicators, replicator)
+	}
+
+	key := "foo"
+	value := "bar"
+
+	firstReplicator := replicators[0]
+
+	response, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: key, Value: value, Clock: &pb.Clock{Timestamp: 1}})
+	if err != nil {
+		t.Fatalf("Error while replicating key to node 0: %v", err)
+	}
+
+	log.Printf("response clock is %v", response.GetClock())
+	kv, err := firstReplicator.GetReplicatedKey(context.Background(),
+		&pb.GetRequest{Key: "nonexist", Metadata: &pb.GetMetadata{Clock: response.GetClock()}})
+	if err != nil {
+		t.Fatalf("Error while getting key from node 1: %v", err)
+	}
+
+	if kv.GetValue() != "" {
+		t.Fatalf("Value mismatch: expected empty string, got %v", kv.GetValue())
+	}
+}
