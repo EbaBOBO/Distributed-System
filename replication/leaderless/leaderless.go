@@ -363,7 +363,7 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 			Clock: clientClock.Proto(),
 		}
 		reply, e := replicaRPCClient.HandlePeerRead(ctx, &pbKey)
-		if e == nil {
+		if e == nil && reply != nil {
 			kvPairs[replicaNodeID] = conflict.KVFromProto[T](reply.GetResolvableKv())
 			replies = append(replies, reply)
 		}
@@ -391,6 +391,10 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 		Clock: latestClk.Proto(),
 	}
 	return &pbReply, nil
+}
+
+func assert() {
+	panic("unimplemented")
 }
 
 // ======================================

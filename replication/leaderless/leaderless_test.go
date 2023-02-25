@@ -207,3 +207,34 @@ func TestReadRepair(t *testing.T) {
 		t.Fatalf("The latest value should be 2")
 	}
 }
+
+func TestConsistency(t *testing.T) {
+	nodes := node.Create([]string{"localhost:1200", "localhost:1201", "localhost:1202",
+		"localhost:1203", "localhost:1204", "localhost:1205", "localhost:1206", "localhost:1207", "localhost:1208", "localhost:1209"})
+
+	var replicators []*State[conflict.PhysicalClock]
+	for _, node := range nodes {
+		replicator := Configure[conflict.PhysicalClock](
+			testCreatePhysicalClockArgs(node, 5, 5),
+		)
+		replicators = append(replicators, replicator)
+	}
+
+	for i := 0; i < 100; i++ {
+		n := i % 10
+		s := strconv.FormatInt(int64(i), 10)
+
+		_, err := replicators[n].ReplicateKey(context.Background(), &pb.PutRequest{
+			Key: "k", Value: s, Clock: &pb.Clock{Timestamp: 1}})
+		if err != nil {
+			t.Fatalf("Error while replicating key to node: %v", err)
+		}
+
+		kv, err := replicators[(n+1)%10].GetReplicatedKey(context.Background(),
+			&pb.GetRequest{Key: "k", Metadata: &pb.GetMetadata{Clock: &pb.Clock{Timestamp: 1}}})
+		if kv.Value != s {
+			t.Fatalf("Should be %v", s)
+		}
+		time.Sleep(1)
+	}
+}
