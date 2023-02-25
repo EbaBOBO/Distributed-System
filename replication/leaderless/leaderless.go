@@ -125,7 +125,6 @@ func (s *State[T]) getUpToDateKV(key string, minimumClock T) (kv *conflict.KV[T]
 			// equal and after
 			return val, true
 		}
-
 	} else {
 		return nil, false
 	}
@@ -269,10 +268,13 @@ func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.Han
 
 	// TODO(students): [Leaderless] Implement me!
 	newKV, found := s.getUpToDateKV(requestKey, requestClock)
-
-	if found {
+	if newKV != nil {
 		res := &pb.HandlePeerReadReply{Found: true, ResolvableKv: newKV.Proto()}
 		return res, nil
+	}
+	if found {
+		res := &pb.HandlePeerReadReply{Found: true}
+		return res, errors.New("key didn't exist")
 	}
 	res := &pb.HandlePeerReadReply{Found: false}
 	return res, errors.New("HandlePeerRead didn't find")

@@ -185,3 +185,36 @@ func TestGetUpToDate(t *testing.T) {
 	}
 
 }
+
+func TestReadRepair(t *testing.T) {
+	nodes := node.Create([]string{"localhost:5234", "localhost:5235", "localhost:5236"})
+	var replicators []*State[conflict.PhysicalClock]
+
+	for _, node := range nodes {
+		replicator := Configure[conflict.PhysicalClock](
+			testCreatePhysicalClockArgs(node, 2, 2),
+		)
+		replicators = append(replicators, replicator)
+	}
+
+	_, err := replicators[0].ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: "k", Value: "0", Clock: &pb.Clock{Timestamp: 10}})
+	if err != nil {
+		t.Fatalf("Error while replicating key to node 0: %v", err)
+	}
+	_, err = replicators[1].ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: "k", Value: "1", Clock: &pb.Clock{Timestamp: 10}})
+	if err != nil {
+		t.Fatalf("Error while replicating key to node 1: %v", err)
+	}
+	_, err = replicators[2].ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: "k", Value: "2", Clock: &pb.Clock{Timestamp: 10}})
+	if err != nil {
+		t.Fatalf("Error while replicating key to node 2: %v", err)
+	}
+	kv, err := replicators[1].GetReplicatedKey(context.Background(),
+		&pb.GetRequest{Key: "k", Metadata: &pb.GetMetadata{Clock: &pb.Clock{Timestamp: 1}}})
+	if kv.Value != "2" {
+		t.Fatalf("The latest value should be 2")
+	}
+}
