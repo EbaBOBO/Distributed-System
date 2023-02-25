@@ -39,22 +39,26 @@ import (
 func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpToDateKV *conflict.KV[T], err error) {
 
 	// TODO(students): [Leaderless] Implement me!
+
 	if newKV == nil {
 		return false, nil, errors.New("not implemented")
 	}
+	//s.log.Printf("safelyUpdateKey %v", newKV)
 	tx := s.localStore.BeginTx(false)
-	defer tx.Commit()
+	//defer tx.Commit()
 	current := s.conflictResolver.NewClock()
 
 	// doesn't exist
 	if _, ok := tx.Get(newKV.Key); !ok {
 		tx.Put(newKV.Key, newKV)
+		tx.Commit()
 		return true, newKV, nil
 	}
 
 	// happens before
 	if current.HappensBefore(newKV.Clock) {
 		tx.Put(newKV.Key, newKV)
+		tx.Commit()
 		return true, newKV, nil
 	}
 
@@ -62,29 +66,37 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	if current.Equals(newKV.Clock) {
 		currentKV, ok := tx.Get(newKV.Key)
 		if !ok {
+			tx.Commit()
 			return false, nil, errors.New("get current kv failed")
 		}
 		mostUpToDateKV, err := s.conflictResolver.ResolveConcurrentEvents(currentKV, newKV)
 		if err != nil {
+			tx.Commit()
 			return false, nil, err
 		} else {
 			if mostUpToDateKV.Equals(newKV) {
 				tx.Put(newKV.Key, newKV)
+				tx.Commit()
 				return true, newKV, nil
 			} else {
 				mostUpToDateKV, ok := tx.Get(newKV.Key)
 				if !ok {
+					tx.Commit()
 					return false, nil, errors.New("get current kv failed")
 				}
-				return false, mostUpToDateKV, nil
+				tx.Commit()
+				return true, mostUpToDateKV, nil
 			}
 		}
 	}
 
+	// after
 	mostUpToDateKV, ok := tx.Get(newKV.Key)
 	if !ok {
+		tx.Commit()
 		return false, nil, errors.New("get current kv failed")
 	}
+	tx.Commit()
 	return true, mostUpToDateKV, nil
 }
 
