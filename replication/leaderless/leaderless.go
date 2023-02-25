@@ -46,24 +46,24 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	s.log.Printf("safelyUpdateKey %v", newKV)
 	tx := s.localStore.BeginTx(false)
 	defer tx.Commit()
-	current := s.conflictResolver.NewClock()
+	current, ok := tx.Get(newKV.Key)
 
 	// doesn't exist
-	if _, ok := tx.Get(newKV.Key); !ok {
+	if !ok {
 		tx.Put(newKV.Key, newKV)
 		//tx.Commit()
 		return true, newKV, nil
 	}
 
 	// happens before
-	if current.HappensBefore(newKV.Clock) {
+	if current.Clock.HappensBefore(newKV.Clock) {
 		tx.Put(newKV.Key, newKV)
 		//tx.Commit()
 		return true, newKV, nil
 	}
 
 	// equal
-	if current.Equals(newKV.Clock) {
+	if current.Clock.Equals(newKV.Clock) {
 		currentKV, ok := tx.Get(newKV.Key)
 		if !ok {
 			//tx.Commit()
@@ -94,7 +94,7 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	}
 
 	// after
-	mostUpToDateKV, ok := tx.Get(newKV.Key)
+	mostUpToDateKV, ok = tx.Get(newKV.Key)
 	if !ok {
 		//tx.Commit()
 		return false, nil, errors.New("get current kv failed")
@@ -167,7 +167,7 @@ func (s *State[T]) HandlePeerWrite(ctx context.Context, r *pb.ResolvableKV) (*pb
 		return reply, nil
 	} else {
 		reply := &pb.HandlePeerWriteReply{
-			Accepted:     true,
+			Accepted:     false,
 			ResolvableKv: mostUpdatedKV.Proto(),
 		}
 		return reply, nil
