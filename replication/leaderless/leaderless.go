@@ -40,16 +40,14 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 
 	// TODO(students): [Leaderless] Implement me!
 
-	var localKV *conflict.KV[T] = nil
 	tx := s.localStore.BeginTx(false)
 	defer tx.Commit()
 	// KV doesn't exist in local store
-	if kv, ok := tx.Get(newKV.Key); !ok {
+	localKV, ok := tx.Get(newKV.Key)
+	if !ok {
 		s.log.Printf("New key, directly put")
 		tx.Put(newKV.Key, newKV)
 		return true, newKV, nil
-	} else {
-		localKV = kv
 	}
 	localClk := localKV.Clock
 	// newKV is newer
@@ -82,7 +80,7 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 		}
 	}
 	// local clock is newer
-	mostUpToDateKV, ok := tx.Get(newKV.Key)
+	mostUpToDateKV, ok = tx.Get(newKV.Key)
 	if !ok {
 		return false, nil, errors.New("Failed to get local KV")
 	}
@@ -374,7 +372,7 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 	}
 	latestClk := conflict.ClockFromProto[T](replies[0].ResolvableKv.GetClock())
 	latestKV := conflict.KVFromProto[T](replies[0].GetResolvableKv())
-	for i := 2; i < len(replies); i++ {
+	for i := 1; i < len(replies); i++ {
 		clk := conflict.ClockFromProto[T](replies[i].ResolvableKv.GetClock())
 		if latestClk.HappensBefore(clk) {
 			latestClk = clk
