@@ -230,11 +230,11 @@ func TestConsistency(t *testing.T) {
 			t.Fatalf("Error while replicating key to node: %v", err)
 		}
 
-		kv, err := replicators[(n+1)%10].GetReplicatedKey(context.Background(),
+		kv, err := replicators[(n+5)%10].GetReplicatedKey(context.Background(),
 			&pb.GetRequest{Key: "k", Metadata: &pb.GetMetadata{Clock: &pb.Clock{Timestamp: 1}}})
 		if kv.Value != s {
 			t.Fatalf("Should be %v", s)
 		}
-		time.Sleep(1)
+		time.Sleep(15)
 	}
 }

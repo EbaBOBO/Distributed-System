@@ -248,12 +248,14 @@ func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.Han
 	if found {
 		s.log.Printf("Key doesn't exist")
 		return &pb.HandlePeerReadReply{
-			Found: found,
+			ResolvableKv: nil,
+			Found:        found,
 		}, errors.New("Key doesn't exist")
 	}
 	s.log.Printf("Value is too old")
 	return &pb.HandlePeerReadReply{
-		Found: found,
+		ResolvableKv: nil,
+		Found:        found,
 	}, errors.New("Value is too old")
 }
 
@@ -354,6 +356,7 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 
 	// TODO(students): [Leaderless] Implement me!
 	var replies []*pb.HandlePeerReadReply
+	var mu sync.Mutex
 	kvPairs := make(map[uint64]*conflict.KV[T])
 	err := s.dispatchToPeers(ctx, s.R, func(ctx context.Context, replicaNodeID uint64) error {
 		conn := s.node.PeerConns[replicaNodeID]
@@ -364,8 +367,10 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 		}
 		reply, e := replicaRPCClient.HandlePeerRead(ctx, &pbKey)
 		if e == nil && reply != nil {
+			mu.Lock()
 			kvPairs[replicaNodeID] = conflict.KVFromProto[T](reply.GetResolvableKv())
 			replies = append(replies, reply)
+			mu.Unlock()
 		}
 		return nil
 	})
