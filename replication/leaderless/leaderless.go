@@ -40,17 +40,21 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 
 	// TODO(students): [Leaderless] Implement me!
 
-	localClk := s.conflictResolver.NewClock()
-
+	var localKV *conflict.KV[T] = nil
 	tx := s.localStore.BeginTx(false)
 	defer tx.Commit()
 	// KV doesn't exist in local store
-	if _, ok := tx.Get(newKV.Key); !ok {
+	if kv, ok := tx.Get(newKV.Key); !ok {
+		s.log.Printf("New key, directly put")
 		tx.Put(newKV.Key, newKV)
 		return true, newKV, nil
+	} else {
+		localKV = kv
 	}
+	localClk := localKV.Clock
 	// newKV is newer
 	if localClk.HappensBefore(newKV.Clock) {
+		s.log.Printf("NewKV is newer, put newKV")
 		tx.Put(newKV.Key, newKV)
 		return true, newKV, nil
 	}
@@ -66,12 +70,14 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 		}
 		if finalKV.Equals(newKV) {
 			tx.Put(newKV.Key, newKV)
+			s.log.Printf("Conflict resolve, put newKV")
 			return true, newKV, nil
 		} else {
 			mostUpToDateKV, ok := tx.Get(newKV.Key)
 			if !ok {
 				return false, nil, errors.New("Failed to get local KV")
 			}
+			s.log.Printf("Conflict resolve, keep oldKV")
 			return false, mostUpToDateKV, nil
 		}
 	}
@@ -80,6 +86,8 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	if !ok {
 		return false, nil, errors.New("Failed to get local KV")
 	}
+	s.log.Printf("localClk: %v, newKVClk: %v", localClk.String(), newKV.Clock)
+	s.log.Printf("LocalKV is newer, keep localkV")
 	return false, mostUpToDateKV, nil
 }
 
@@ -121,8 +129,9 @@ func (s *State[T]) getUpToDateKV(key string, minimumClock T) (kv *conflict.KV[T]
 // the key-value returned from safelyUpdateKey to this type, simply use the .Proto() function of
 // that key-value.
 func (s *State[T]) HandlePeerWrite(ctx context.Context, r *pb.ResolvableKV) (*pb.HandlePeerWriteReply, error) {
-	s.onMessageReceived(conflict.ClockFromProto[T](r.GetClock()))
 
+	s.onMessageReceived(conflict.ClockFromProto[T](r.GetClock()))
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	newKV := conflict.KVFromProto[T](r)
 	s.log.Printf("HandlePeerWrite: received direct replication of %v", newKV)
 
@@ -160,6 +169,7 @@ func (s *State[T]) replicateToNode(ctx context.Context, kv *conflict.KV[T], repl
 	conn := s.node.PeerConns[uint64(replicaNodeID)]
 	replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
 	s.onMessageSend()
+	s.log.Printf("onMessageSend, now %v", s.conflictResolver.NewClock())
 	err := s.withRetries(func() error {
 		reply, e := replicaRPCClient.HandlePeerWrite(ctx, kv.Proto())
 		if e != nil {
@@ -192,8 +202,9 @@ func (s *State[T]) ReplicateKey(ctx context.Context, kv *pb.PutRequest) (*pb.Put
 
 	clientClock := conflict.ClockFromProto[T](kv.GetClock())
 	s.onMessageReceived(clientClock)
-
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	newKV := conflict.KVFromParts(kv.Key, kv.Value, s.conflictResolver.NewClock())
+	s.log.Printf("newKV clock: %v", newKV.Clock)
 	s.log.Printf("ReplicateKey: called with KV %s", newKV)
 
 	// TODO(students): [Leaderless] Implement me!
@@ -219,8 +230,9 @@ func (s *State[T]) ReplicateKey(ctx context.Context, kv *pb.PutRequest) (*pb.Put
 func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.HandlePeerReadReply, error) {
 	requestKey := request.GetKey()
 	requestClock := conflict.ClockFromProto[T](request.GetClock())
-	s.onMessageReceived(requestClock)
 
+	s.onMessageReceived(requestClock)
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	s.log.Printf("HandlePeerRead: received request for key %s", requestKey)
 
 	// TODO(students): [Leaderless] Implement me!
@@ -261,7 +273,9 @@ func (s *State[T]) readFromNode(ctx context.Context, key string, replicaNodeID u
 		Key:   key,
 		Clock: clientClock.Proto(),
 	}
+
 	s.onMessageSend()
+	s.log.Printf("onMessageSend, now %v", s.conflictResolver.NewClock())
 	var reply *pb.HandlePeerReadReply
 	err := s.withRetries(func() error {
 		var e error
@@ -291,7 +305,9 @@ func (s *State[T]) readFromNode(ctx context.Context, key string, replicaNodeID u
 func (s *State[T]) PerformReadRepair(ctx context.Context, latestKV *conflict.KV[T], kvPairs map[uint64]*conflict.KV[T]) {
 
 	// TODO(students): [Leaderless] Implement me!
+
 	s.onMessageSend()
+	s.log.Printf("onMessageSend, now %v", s.conflictResolver.NewClock())
 	var wg sync.WaitGroup
 	wg.Add(len(s.node.PeerConns))
 	for replicaNodeID, _ := range s.node.PeerConns {
@@ -324,8 +340,9 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 	s.ensureClock(&r.GetMetadata().Clock)
 
 	clientClock := conflict.ClockFromProto[T](r.GetMetadata().GetClock())
-	s.onMessageReceived(clientClock)
 
+	s.onMessageReceived(clientClock)
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	s.log.Printf("GetReplicatedKey: key %s with clock %v", r.Key, clientClock)
 
 	// TODO(students): [Leaderless] Implement me!
