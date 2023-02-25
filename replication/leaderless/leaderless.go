@@ -39,9 +39,9 @@ import (
 func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpToDateKV *conflict.KV[T], err error) {
 
 	// TODO(students): [Leaderless] Implement me!
-	//if newKV == nil {
-	//	return false, nil, errors.New("not implemented")
-	//}
+	if newKV == nil {
+		return false, nil, errors.New("not implemented")
+	}
 	tx := s.localStore.BeginTx(false)
 	defer tx.Commit()
 	current := s.conflictResolver.NewClock()
@@ -85,7 +85,7 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	if !ok {
 		return false, nil, errors.New("get current kv failed")
 	}
-	return false, mostUpToDateKV, nil
+	return true, mostUpToDateKV, nil
 }
 
 // getUpToDateKV returns the KV associated with the key from the local store, but only if the one
@@ -144,19 +144,22 @@ func (s *State[T]) HandlePeerWrite(ctx context.Context, r *pb.ResolvableKV) (*pb
 	if err != nil {
 		return nil, errors.New("not implemented")
 	}
-	//if updated {
-	//	res := &pb.HandlePeerWriteReply{}
-	//	res.ResolvableKv = mostUpdatedKV.Proto()
-	//	return res, nil
-	//} else {
-	//	return nil, errors.New("not implemented")
-	//}
-	reply := &pb.HandlePeerWriteReply{
-		Accepted:     updated,
-		ResolvableKv: mostUpdatedKV.Proto(),
+	if updated {
+		reply := &pb.HandlePeerWriteReply{
+			Accepted:     updated,
+			ResolvableKv: mostUpdatedKV.Proto(),
+		}
+		return reply, nil
+	} else {
+		reply := &pb.HandlePeerWriteReply{
+			Accepted:     updated,
+			ResolvableKv: mostUpdatedKV.Proto(),
+		}
+		return reply, nil
+		//return nil, errors.New("not implemented")
 	}
 
-	return reply, nil
+	return nil, errors.New("not implemented")
 }
 
 // replicateToNode performs a remote write of the given KV to the specified node, with 3 retries.
@@ -251,11 +254,13 @@ func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.Han
 
 	// TODO(students): [Leaderless] Implement me!
 	newKV, found := s.getUpToDateKV(requestKey, requestClock)
+
 	if found {
 		res := &pb.HandlePeerReadReply{Found: true, ResolvableKv: newKV.Proto()}
 		return res, nil
 	}
-	return nil, errors.New("HandlePeerRead didn't find")
+	res := &pb.HandlePeerReadReply{Found: false}
+	return res, errors.New("HandlePeerRead didn't find")
 }
 
 // readFromNode performs a remote read from the specified node, with 3 retries.
