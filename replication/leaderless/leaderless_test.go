@@ -110,3 +110,78 @@ func TestBasicReadRepair(t *testing.T) {
 		}
 	}
 }
+
+func TestReadNonexistentKeys(t *testing.T) {
+	nodes := node.Create([]string{"localhost:2234", "localhost:2235", "localhost:2236"})
+	var replicators []*State[conflict.PhysicalClock]
+
+	for _, node := range nodes {
+		replicator := Configure[conflict.PhysicalClock](
+			testCreatePhysicalClockArgs(node, 2, 2),
+		)
+		replicators = append(replicators, replicator)
+	}
+
+	key := "foo"
+	value := "bar"
+
+	firstReplicator := replicators[0]
+
+	response, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: key, Value: value, Clock: &pb.Clock{Timestamp: 1}})
+	if err != nil {
+		t.Fatalf("Error while replicating key to node 0: %v", err)
+	}
+
+	log.Printf("response clock is %v", response.GetClock())
+	kv, err := firstReplicator.GetReplicatedKey(context.Background(),
+		&pb.GetRequest{Key: "nonexist", Metadata: &pb.GetMetadata{Clock: response.GetClock()}})
+	if err == nil {
+		t.Fatalf("Expected error while reading non-existent key")
+	}
+
+	if kv.GetValue() != "" {
+		t.Fatalf("Value mismatch: expected empty string, got %v", kv.GetValue())
+	}
+}
+
+func TestGetUpToDate(t *testing.T) {
+	nodes := node.Create([]string{"localhost:3234", "localhost:3235", "localhost:3236"})
+	var replicators []*State[conflict.PhysicalClock]
+
+	for _, node := range nodes {
+		replicator := Configure[conflict.PhysicalClock](
+			testCreatePhysicalClockArgs(node, 2, 2),
+		)
+		replicators = append(replicators, replicator)
+	}
+
+	firstReplicator := replicators[0]
+
+	response, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: "foo", Value: "bar1", Clock: &pb.Clock{Timestamp: 10}})
+	if err != nil {
+		t.Fatalf("Error while replicating key to node 0: %v", err)
+	}
+	log.Printf("response clock is %v", response.GetClock())
+	response2, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: "foo", Value: "bar2", Clock: &pb.Clock{Timestamp: 20}})
+
+	if err != nil {
+		t.Fatalf("Error while replicating key to node 0: %v", err)
+	}
+	log.Printf("response clock is %v", response2.GetClock())
+	//kv, err := firstReplicator.GetReplicatedKey(context.Background(),
+	//	&pb.GetRequest{Key: "foo", Metadata: &pb.GetMetadata{Clock: &pb.Clock{Timestamp: uint64(time.Now().UnixNano() + 1e15)}}})
+
+	kv, err := firstReplicator.GetReplicatedKey(context.Background(),
+		&pb.GetRequest{Key: "foo", Metadata: &pb.GetMetadata{Clock: response2.GetClock()}})
+	//if err != nil {
+	//	t.Fatalf("Error while replicating key to node 0: %v", err)
+	//}
+	//log.Printf("response clock is %v", kv.GetClock())
+	if kv.GetValue() != "bar2" {
+		t.Fatalf("Error while replicating key")
+	}
+
+}

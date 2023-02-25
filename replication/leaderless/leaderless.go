@@ -43,22 +43,22 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	if newKV == nil {
 		return false, nil, errors.New("not implemented")
 	}
-	//s.log.Printf("safelyUpdateKey %v", newKV)
+	s.log.Printf("safelyUpdateKey %v", newKV)
 	tx := s.localStore.BeginTx(false)
-	//defer tx.Commit()
+	defer tx.Commit()
 	current := s.conflictResolver.NewClock()
 
 	// doesn't exist
 	if _, ok := tx.Get(newKV.Key); !ok {
 		tx.Put(newKV.Key, newKV)
-		tx.Commit()
+		//tx.Commit()
 		return true, newKV, nil
 	}
 
 	// happens before
 	if current.HappensBefore(newKV.Clock) {
 		tx.Put(newKV.Key, newKV)
-		tx.Commit()
+		//tx.Commit()
 		return true, newKV, nil
 	}
 
@@ -66,26 +66,29 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	if current.Equals(newKV.Clock) {
 		currentKV, ok := tx.Get(newKV.Key)
 		if !ok {
-			tx.Commit()
+			//tx.Commit()
 			return false, nil, errors.New("get current kv failed")
+		}
+		if currentKV.Value == newKV.Value {
+			return false, currentKV, nil
 		}
 		mostUpToDateKV, err := s.conflictResolver.ResolveConcurrentEvents(currentKV, newKV)
 		if err != nil {
-			tx.Commit()
+			//tx.Commit()
 			return false, nil, err
 		} else {
 			if mostUpToDateKV.Equals(newKV) {
 				tx.Put(newKV.Key, newKV)
-				tx.Commit()
+				//tx.Commit()
 				return true, newKV, nil
 			} else {
 				mostUpToDateKV, ok := tx.Get(newKV.Key)
 				if !ok {
-					tx.Commit()
+					//tx.Commit()
 					return false, nil, errors.New("get current kv failed")
 				}
-				tx.Commit()
-				return true, mostUpToDateKV, nil
+				//tx.Commit()
+				return false, mostUpToDateKV, nil
 			}
 		}
 	}
@@ -93,11 +96,11 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 	// after
 	mostUpToDateKV, ok := tx.Get(newKV.Key)
 	if !ok {
-		tx.Commit()
+		//tx.Commit()
 		return false, nil, errors.New("get current kv failed")
 	}
-	tx.Commit()
-	return true, mostUpToDateKV, nil
+	//tx.Commit()
+	return false, mostUpToDateKV, nil
 }
 
 // getUpToDateKV returns the KV associated with the key from the local store, but only if the one
@@ -158,13 +161,13 @@ func (s *State[T]) HandlePeerWrite(ctx context.Context, r *pb.ResolvableKV) (*pb
 	}
 	if updated {
 		reply := &pb.HandlePeerWriteReply{
-			Accepted:     updated,
+			Accepted:     true,
 			ResolvableKv: mostUpdatedKV.Proto(),
 		}
 		return reply, nil
 	} else {
 		reply := &pb.HandlePeerWriteReply{
-			Accepted:     updated,
+			Accepted:     true,
 			ResolvableKv: mostUpdatedKV.Proto(),
 		}
 		return reply, nil
@@ -387,7 +390,7 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 	}
 	latestClock := conflict.ClockFromProto[T](replies[0].ResolvableKv.GetClock())
 	latestKV := conflict.KVFromProto[T](replies[0].GetResolvableKv())
-	for i := 2; i < len(replies); i++ {
+	for i := 1; i < len(replies); i++ {
 		clk := conflict.ClockFromProto[T](replies[i].ResolvableKv.GetClock())
 		if latestClock.HappensBefore(clk) {
 			latestClock = clk
