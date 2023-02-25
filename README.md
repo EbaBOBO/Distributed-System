@@ -10,3 +10,13 @@
 ``TestOnMessageReceive`` tests normal case of ``OnMessageReceive`` ensure its correct behavior.
 
 ``TestResolveConcurrentEvents`` tests normal case of ``ResolveConcurrentEvents`` with physical clock.
+
+## Leaderless Replication
+### Test Cases
+``TestReadNonexistentKeys`` tests get non-existent keys
+
+``TestGetUpToDate`` see if we could get the latest key back
+
+``TestReadRepair`` test if read repair work
+
+``TestConsistency`` test with quick write and read see if it is correct
