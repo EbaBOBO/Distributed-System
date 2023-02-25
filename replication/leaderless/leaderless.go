@@ -102,17 +102,20 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 func (s *State[T]) getUpToDateKV(key string, minimumClock T) (kv *conflict.KV[T], found bool) {
 
 	// TODO(students): [Leaderless] Implement me!
-	localCLK := s.conflictResolver.NewClock()
-	if localCLK.HappensBefore(minimumClock) {
-		return nil, false
-	}
+	// localCLK := s.conflictResolver.NewClock()
+	// if localCLK.HappensBefore(minimumClock) {
+	// 	return nil, false
+	// }
 	tx := s.localStore.BeginTx(true)
 	defer tx.Commit()
-	kv, ok := tx.Get(key)
+	localKV, ok := tx.Get(key)
 	if !ok {
 		return nil, false
 	}
-	return kv, true
+	if localKV.Clock.HappensBefore(minimumClock) {
+		return nil, true
+	}
+	return localKV, true
 }
 
 // HandlePeerWrite attempts to write a KV being replicated from a peer node (not the client).
