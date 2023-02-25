@@ -39,7 +39,54 @@ import (
 func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpToDateKV *conflict.KV[T], err error) {
 
 	// TODO(students): [Leaderless] Implement me!
-	return false, nil, errors.New("not implemented")
+
+	tx := s.localStore.BeginTx(false)
+	defer tx.Commit()
+	// KV doesn't exist in local store
+	localKV, ok := tx.Get(newKV.Key)
+	if !ok {
+		s.log.Printf("New key, directly put")
+		tx.Put(newKV.Key, newKV)
+		return true, newKV, nil
+	}
+	localClk := localKV.Clock
+	// newKV is newer
+	if localClk.HappensBefore(newKV.Clock) {
+		s.log.Printf("NewKV is newer, put newKV")
+		tx.Put(newKV.Key, newKV)
+		return true, newKV, nil
+	}
+	// equal, resolve conflict
+	if localClk.Equals(newKV.Clock) {
+		localKV, ok := tx.Get(newKV.Key)
+		if !ok {
+			return false, nil, errors.New("Failed to get local KV")
+		}
+		finalKV, err := s.conflictResolver.ResolveConcurrentEvents(localKV, newKV)
+		if err != nil {
+			return false, nil, err
+		}
+		if finalKV.Equals(newKV) {
+			tx.Put(newKV.Key, newKV)
+			s.log.Printf("Conflict resolve, put newKV")
+			return true, newKV, nil
+		} else {
+			mostUpToDateKV, ok := tx.Get(newKV.Key)
+			if !ok {
+				return false, nil, errors.New("Failed to get local KV")
+			}
+			s.log.Printf("Conflict resolve, keep oldKV")
+			return false, mostUpToDateKV, nil
+		}
+	}
+	// local clock is newer
+	mostUpToDateKV, ok = tx.Get(newKV.Key)
+	if !ok {
+		return false, nil, errors.New("Failed to get local KV")
+	}
+	s.log.Printf("localClk: %v, newKVClk: %v", localClk.String(), newKV.Clock)
+	s.log.Printf("LocalKV is newer, keep localkV")
+	return false, mostUpToDateKV, nil
 }
 
 // getUpToDateKV returns the KV associated with the key from the local store, but only if the one
@@ -53,7 +100,20 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 func (s *State[T]) getUpToDateKV(key string, minimumClock T) (kv *conflict.KV[T], found bool) {
 
 	// TODO(students): [Leaderless] Implement me!
-	return nil, false
+	// localCLK := s.conflictResolver.NewClock()
+	// if localCLK.HappensBefore(minimumClock) {
+	// 	return nil, false
+	// }
+	tx := s.localStore.BeginTx(true)
+	defer tx.Commit()
+	localKV, ok := tx.Get(key)
+	if !ok {
+		return nil, false
+	}
+	if localKV.Clock.HappensBefore(minimumClock) {
+		return nil, true
+	}
+	return localKV, true
 }
 
 // HandlePeerWrite attempts to write a KV being replicated from a peer node (not the client).
@@ -70,13 +130,22 @@ func (s *State[T]) getUpToDateKV(key string, minimumClock T) (kv *conflict.KV[T]
 // the key-value returned from safelyUpdateKey to this type, simply use the .Proto() function of
 // that key-value.
 func (s *State[T]) HandlePeerWrite(ctx context.Context, r *pb.ResolvableKV) (*pb.HandlePeerWriteReply, error) {
-	s.onMessageReceived(conflict.ClockFromProto[T](r.GetClock()))
 
+	s.onMessageReceived(conflict.ClockFromProto[T](r.GetClock()))
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	newKV := conflict.KVFromProto[T](r)
 	s.log.Printf("HandlePeerWrite: received direct replication of %v", newKV)
 
 	// TODO(students): [Leaderless] Implement me!
-	return nil, errors.New("not implemented")
+	updated, mostUpToDateKV, err := s.safelyUpdateKey(newKV)
+	if err != nil {
+		return nil, err
+	}
+	reply := pb.HandlePeerWriteReply{
+		Accepted:     updated,
+		ResolvableKv: mostUpToDateKV.Proto(),
+	}
+	return &reply, nil
 }
 
 // replicateToNode performs a remote write of the given KV to the specified node, with 3 retries.
@@ -98,7 +167,24 @@ func (s *State[T]) replicateToNode(ctx context.Context, kv *conflict.KV[T], repl
 	s.log.Printf("write to node being called for node %d", replicaNodeID)
 
 	// TODO(students): [Leaderless] Implement me!
-	return errors.New("not implemented")
+	conn := s.node.PeerConns[uint64(replicaNodeID)]
+	replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
+	s.onMessageSend()
+	s.log.Printf("onMessageSend, now %v", s.conflictResolver.NewClock())
+	err := s.withRetries(func() error {
+		reply, e := replicaRPCClient.HandlePeerWrite(ctx, kv.Proto())
+		if e != nil {
+			return e
+		}
+		if !reply.Accepted {
+			return errors.New("Replication Failed")
+		}
+		return nil
+	}, 3)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // ReplicateKey replicates the given key to W arbitrary nodes (one of which is the current node).
@@ -117,12 +203,20 @@ func (s *State[T]) ReplicateKey(ctx context.Context, kv *pb.PutRequest) (*pb.Put
 
 	clientClock := conflict.ClockFromProto[T](kv.GetClock())
 	s.onMessageReceived(clientClock)
-
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	newKV := conflict.KVFromParts(kv.Key, kv.Value, s.conflictResolver.NewClock())
+	s.log.Printf("newKV clock: %v", newKV.Clock)
 	s.log.Printf("ReplicateKey: called with KV %s", newKV)
 
 	// TODO(students): [Leaderless] Implement me!
-	return nil, nil
+
+	err := s.dispatchToPeers(ctx, s.W, func(_ctx context.Context, replicaNodeId uint64) error {
+		return s.replicateToNode(_ctx, newKV, replicaNodeId)
+	})
+	reply := pb.PutReply{
+		Clock: clientClock.Proto(),
+	}
+	return &reply, err
 }
 
 // HandlePeerRead attempts to service a peer's read request by returning the KV from the current
@@ -137,12 +231,32 @@ func (s *State[T]) ReplicateKey(ctx context.Context, kv *pb.PutRequest) (*pb.Put
 func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.HandlePeerReadReply, error) {
 	requestKey := request.GetKey()
 	requestClock := conflict.ClockFromProto[T](request.GetClock())
-	s.onMessageReceived(requestClock)
 
+	s.onMessageReceived(requestClock)
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	s.log.Printf("HandlePeerRead: received request for key %s", requestKey)
 
 	// TODO(students): [Leaderless] Implement me!
-	return nil, errors.New("not implemented")
+	localKV, found := s.getUpToDateKV(requestKey, requestClock)
+	if localKV != nil {
+		s.log.Printf("Found key %v with value %v", localKV.Key, localKV.Value)
+		return &pb.HandlePeerReadReply{
+			ResolvableKv: localKV.Proto(),
+			Found:        found,
+		}, nil
+	}
+	if found {
+		s.log.Printf("Key doesn't exist")
+		return &pb.HandlePeerReadReply{
+			ResolvableKv: nil,
+			Found:        found,
+		}, errors.New("Key doesn't exist")
+	}
+	s.log.Printf("Value is too old")
+	return &pb.HandlePeerReadReply{
+		ResolvableKv: nil,
+		Found:        found,
+	}, errors.New("Value is too old")
 }
 
 // readFromNode performs a remote read from the specified node, with 3 retries.
@@ -162,7 +276,26 @@ func (s *State[T]) readFromNode(ctx context.Context, key string, replicaNodeID u
 	s.log.Printf("read from node being called for node %d", replicaNodeID)
 
 	// TODO(students): [Leaderless] Implement me!
-	return nil, errors.New("not implemented")
+	conn := s.node.PeerConns[uint64(replicaNodeID)]
+	replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
+	pbKey := pb.Key{
+		Key:   key,
+		Clock: clientClock.Proto(),
+	}
+
+	s.onMessageSend()
+	s.log.Printf("onMessageSend, now %v", s.conflictResolver.NewClock())
+	var reply *pb.HandlePeerReadReply
+	err := s.withRetries(func() error {
+		var e error
+		reply, e = replicaRPCClient.HandlePeerRead(ctx, &pbKey)
+		return e
+	}, 3)
+	if err != nil {
+		return nil, err
+	}
+	replyKV := conflict.KVFromProto[T](reply.ResolvableKv)
+	return replyKV, nil
 }
 
 // PerformReadRepair performs synchronous read repair using the most up-to-date key-value pair,
@@ -181,6 +314,20 @@ func (s *State[T]) readFromNode(ctx context.Context, key string, replicaNodeID u
 func (s *State[T]) PerformReadRepair(ctx context.Context, latestKV *conflict.KV[T], kvPairs map[uint64]*conflict.KV[T]) {
 
 	// TODO(students): [Leaderless] Implement me!
+
+	s.onMessageSend()
+	s.log.Printf("onMessageSend, now %v", s.conflictResolver.NewClock())
+	var wg sync.WaitGroup
+	wg.Add(len(s.node.PeerConns))
+	for replicaNodeID, _ := range s.node.PeerConns {
+		go func(id uint64) {
+			conn := s.node.PeerConns[id]
+			replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
+			replicaRPCClient.HandlePeerWrite(ctx, latestKV.Proto())
+			wg.Done()
+		}(replicaNodeID)
+	}
+	wg.Wait()
 }
 
 // GetReplicatedKey performs a quorum read of the system, also performing read repair.
@@ -202,12 +349,57 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 	s.ensureClock(&r.GetMetadata().Clock)
 
 	clientClock := conflict.ClockFromProto[T](r.GetMetadata().GetClock())
-	s.onMessageReceived(clientClock)
 
+	s.onMessageReceived(clientClock)
+	s.log.Printf("onMessageReceived, now %v", s.conflictResolver.NewClock())
 	s.log.Printf("GetReplicatedKey: key %s with clock %v", r.Key, clientClock)
 
 	// TODO(students): [Leaderless] Implement me!
-	return nil, errors.New("not implemented")
+	var replies []*pb.HandlePeerReadReply
+	var mu sync.Mutex
+	kvPairs := make(map[uint64]*conflict.KV[T])
+	err := s.dispatchToPeers(ctx, s.R, func(ctx context.Context, replicaNodeID uint64) error {
+		conn := s.node.PeerConns[replicaNodeID]
+		replicaRPCClient := pb.NewBasicLeaderlessReplicatorClient(conn)
+		pbKey := pb.Key{
+			Key:   r.Key,
+			Clock: clientClock.Proto(),
+		}
+		reply, e := replicaRPCClient.HandlePeerRead(ctx, &pbKey)
+		if e == nil && reply != nil {
+			mu.Lock()
+			kvPairs[replicaNodeID] = conflict.KVFromProto[T](reply.GetResolvableKv())
+			replies = append(replies, reply)
+			mu.Unlock()
+		}
+		return nil
+	})
+	s.log.Printf("Get %v replies", len(replies))
+	if err != nil {
+		return nil, err
+	}
+	if len(replies) == 0 {
+		return nil, errors.New("No replies")
+	}
+	latestClk := conflict.ClockFromProto[T](replies[0].ResolvableKv.GetClock())
+	latestKV := conflict.KVFromProto[T](replies[0].GetResolvableKv())
+	for i := 1; i < len(replies); i++ {
+		clk := conflict.ClockFromProto[T](replies[i].ResolvableKv.GetClock())
+		if latestClk.HappensBefore(clk) {
+			latestClk = clk
+			latestKV = conflict.KVFromProto[T](replies[i].GetResolvableKv())
+		}
+	}
+	s.PerformReadRepair(ctx, latestKV, kvPairs)
+	pbReply := pb.GetReply{
+		Value: latestKV.Value,
+		Clock: latestClk.Proto(),
+	}
+	return &pbReply, nil
+}
+
+func assert() {
+	panic("unimplemented")
 }
 
 // ======================================
