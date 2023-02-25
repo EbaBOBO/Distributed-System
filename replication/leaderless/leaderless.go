@@ -238,17 +238,23 @@ func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.Han
 
 	// TODO(students): [Leaderless] Implement me!
 	localKV, found := s.getUpToDateKV(requestKey, requestClock)
-	if found {
+	if localKV != nil {
 		s.log.Printf("Found key %v with value %v", localKV.Key, localKV.Value)
 		return &pb.HandlePeerReadReply{
 			ResolvableKv: localKV.Proto(),
 			Found:        found,
 		}, nil
 	}
-	s.log.Printf("Key doesn't exist")
+	if found {
+		s.log.Printf("Key doesn't exist")
+		return &pb.HandlePeerReadReply{
+			Found: found,
+		}, errors.New("Key doesn't exist")
+	}
+	s.log.Printf("Value is too old")
 	return &pb.HandlePeerReadReply{
 		Found: found,
-	}, errors.New("Key doesn't exist")
+	}, errors.New("Value is too old")
 }
 
 // readFromNode performs a remote read from the specified node, with 3 retries.
