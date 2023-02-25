@@ -14,6 +14,9 @@
 ## Leaderless Replication
 ### Test Cases
 ``TestReadNonexistentKeys`` tests get non-existent keys
+
 ``TestGetUpToDate`` see if we could get the latest key back
+
 ``TestReadRepair`` test if read repair work
+
 ``TestConsistency`` test with quick write and read see if it is correct
