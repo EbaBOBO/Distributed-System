@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"math"
+	"sort"
 )
 
 // Lookup returns the ID of the replica group to which the specified key is assigned.
@@ -51,8 +52,34 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 	}
 	newNodes := c.virtualNodesForGroup(id)
 	newNodesList := append(c.virtualNodes, newNodes...)
-
-	return nil
+	sort.Slice(newNodesList, func(i, j int) bool {
+		return virtualNodeLess(newNodesList[i], newNodesList[j])
+	})
+	var reassignments []Reassignment
+	for i := 1; i < len(newNodesList); i++ {
+		if newNodesList[i-1].id != id && newNodesList[i].id == id {
+			reassignments = append(reassignments, Reassignment{
+				From: newNodesList[i].id,
+				To:   newNodesList[i-1].id,
+				Range: KeyRange{
+					Start: hashToString(newNodesList[i-1].hash),
+					End:   hashToString(newNodesList[i].hash),
+				},
+			})
+		}
+	}
+	if newNodesList[len(newNodesList)-1].id == id && newNodesList[0].id != id {
+		reassignments = append(reassignments, Reassignment{
+			From: newNodesList[0].id,
+			To:   newNodesList[len(newNodesList)-1].id,
+			Range: KeyRange{
+				Start: hashToString(newNodesList[len(newNodesList)-1].hash),
+				End:   hashToString(newNodesList[0].hash),
+			},
+		})
+	}
+	c.virtualNodes = newNodesList
+	return reassignments
 }
 
 // RemoveReplicaGroup removes a replica group from the hash ring, returning a list of key
