@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"math"
 )
 
@@ -19,7 +18,16 @@ import (
 func (c *ConsistentHash) Lookup(key string) (id uint64, rewrittenKey string, err error) {
 
 	// TODO(students): [Partitioning] Implement me!
-	return 0, "", errors.New("not implemented")
+	hash := c.keyHash(key)
+	rewrittenKey = hashToString(hash)
+	target := &c.virtualNodes[0]
+	for i := 1; i < len(c.virtualNodes); i++ {
+		if flag := bytes.Compare(hash[:], c.virtualNodes[i].hash[:]); flag == -1 || flag == 0 {
+			target = &c.virtualNodes[i]
+			break
+		}
+	}
+	return target.id, hashToString(hash), nil
 }
 
 // AddReplicaGroup adds a replica group to the hash ring, returning a list of key ranges that need
@@ -35,6 +43,15 @@ func (c *ConsistentHash) Lookup(key string) (id uint64, rewrittenKey string, err
 func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 
 	// TODO(students): [Partitioning] Implement me!
+	// If the group is already in the ring, do nothing.
+	for _, n := range c.virtualNodes {
+		if n.id == id {
+			return nil
+		}
+	}
+	newNodes := c.virtualNodesForGroup(id)
+	newNodesList := append(c.virtualNodes, newNodes...)
+
 	return nil
 }
 
