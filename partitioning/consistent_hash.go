@@ -60,32 +60,6 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 		return nil
 	}
 	var reassignments []Reassignment
-	// for i := 0; i < len(c.virtualNodes); i++ {
-	// 	if c.node(i).id == id {
-	// 		continue
-	// 	}
-	// 	insertCnt := 0
-	// 	var lastNodeIdx = i - 1
-	// 	var currNodeIdx = i
-	// 	for j := i - 1; j > i-len(c.virtualNodes); j-- {
-	// 		if c.node(j).id == id {
-	// 			insertCnt++
-	// 		} else {
-	// 			lastNodeIdx = j
-	// 			break
-	// 		}
-	// 	}
-	// 	for j := lastNodeIdx + 1; j < currNodeIdx; j++ {
-	// 		reassignments = append(reassignments, Reassignment{
-	// 			From: c.node(currNodeIdx).id,
-	// 			To:   c.node(j).id,
-	// 			Range: KeyRange{
-	// 				Start: hashToString(incrementHash(c.node(j - 1).hash)),
-	// 				End:   hashToString(c.node(j).hash),
-	// 			},
-	// 		})
-	// 	}
-	// }
 	bound := len(c.virtualNodes)
 	for i := 0; i < bound; {
 		if c.node(i).id != id {

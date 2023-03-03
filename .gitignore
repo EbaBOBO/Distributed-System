@@ -2,3 +2,4 @@
 .vscode/
 modist
 __debug_bin
+*.out

@@ -2,6 +2,7 @@ package partitioning
 
 import (
 	"encoding/binary"
+	"reflect"
 	"testing"
 
 	"golang.org/x/exp/slices"
@@ -86,7 +87,38 @@ func TestAddReplicaGroup(t *testing.T) {
 		newVirtualNode(c, 50, 1),
 	}
 	slices.SortFunc(c.virtualNodes, virtualNodeLess)
-	c.AddReplicaGroup(25)
+	res := c.AddReplicaGroup(25)
+	var correctRes []Reassignment
+
+	correctRes = append(correctRes, Reassignment{
+		From: 50,
+		To:   25,
+		Range: KeyRange{
+			Start: "0000000000000000000000000000000000000000000000000000000000000003",
+			End:   "0000000000000000000000000000000000000000000000000000000000000019",
+		},
+	})
+	correctRes = append(correctRes, Reassignment{
+		From: 50,
+		To:   25,
+		Range: KeyRange{
+			Start: "000000000000000000000000000000000000000000000000000000000000001a",
+			End:   "000000000000000000000000000000000000000000000000000000000000001a",
+		},
+	})
+
+	equalCnt := 0
+	for _, r := range res {
+		for _, cr := range correctRes {
+			if reflect.DeepEqual(r, cr) {
+				equalCnt++
+			}
+		}
+	}
+	if equalCnt != len(correctRes) {
+		t.Errorf("False range")
+	}
+
 }
 
 func TestRemoveReplicaGroup(t *testing.T) {
@@ -96,9 +128,51 @@ func TestRemoveReplicaGroup(t *testing.T) {
 	c.virtualNodes = []virtualNode{
 		newVirtualNode(c, 1, 0),
 		newVirtualNode(c, 1, 1),
+		newVirtualNode(c, 20, 0),
+		newVirtualNode(c, 20, 1),
 		newVirtualNode(c, 50, 0),
 		newVirtualNode(c, 50, 1),
 	}
 	slices.SortFunc(c.virtualNodes, virtualNodeLess)
-	c.RemoveReplicaGroup(50)
+	res := c.RemoveReplicaGroup(50)
+
+	var correctRes []Reassignment
+
+	correctRes = append(correctRes, Reassignment{
+		From: 50,
+		To:   1,
+		Range: KeyRange{
+			Start: "0000000000000000000000000000000000000000000000000000000000000016",
+			End:   "0000000000000000000000000000000000000000000000000000000000000032",
+		},
+	})
+	correctRes = append(correctRes, Reassignment{
+		From: 50,
+		To:   1,
+		Range: KeyRange{
+			Start: "0000000000000000000000000000000000000000000000000000000000000033",
+			End:   "0000000000000000000000000000000000000000000000000000000000000033",
+		},
+	})
+
+	equalCnt := 0
+	for _, r := range res {
+		for _, cr := range correctRes {
+			if reflect.DeepEqual(r, cr) {
+				equalCnt++
+			}
+		}
+	}
+	if equalCnt != len(correctRes) {
+		t.Errorf("False range")
+	}
+}
+
+func TestLookup(t *testing.T) {
+	c := NewConsistentHash(2)
+	c.hasher = identityHasher
+	_, _, err := c.Lookup("test")
+	if err == nil {
+		t.Errorf("Should return error when there is no replica group")
+	}
 }
