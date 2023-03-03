@@ -20,6 +20,9 @@ import (
 func (c *ConsistentHash) Lookup(key string) (id uint64, rewrittenKey string, err error) {
 
 	// TODO(students): [Partitioning] Implement me!
+	if len(c.virtualNodes) == 0 {
+		return 0, "", errors.New("empty group")
+	}
 	hash := c.keyHash(key)
 	rewrittenKey = hashToString(hash)
 	target := virtualNode{hash: hash}
@@ -29,7 +32,8 @@ func (c *ConsistentHash) Lookup(key string) (id uint64, rewrittenKey string, err
 			return id, rewrittenKey, nil
 		}
 	}
-	return 0, "", errors.New("not found")
+	return c.virtualNodes[0].id, rewrittenKey, nil
+
 }
 
 // AddReplicaGroup adds a replica group to the hash ring, returning a list of key ranges that need
@@ -59,30 +63,45 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 	// reassign
 	idx := 0
 	var reassign []Reassignment
+
 	for i := 0; i < len(c.virtualNodes); i++ {
+		lastNode := c.virtualNodes[i]
 		for (idx <= c.virtualNodesPerGroup) && virtualNodeCmp(c.virtualNodes[i], nodeList[idx]) <= 0 {
-			reassign = append(reassign, Reassignment{
-				From: c.virtualNodes[i].id,
-				To:   id,
-				Range: KeyRange{
-					Start: hashToString(incrementHash(c.virtualNodes[i].hash)),
-					End:   hashToString(nodeList[idx].hash),
-				},
-			})
+			if lastNode.id != id {
+				reassign = append(reassign, Reassignment{
+					From: c.virtualNodes[i].id,
+					To:   id,
+					Range: KeyRange{
+						Start: hashToString(incrementHash(c.virtualNodes[i].hash)),
+						End:   hashToString(nodeList[idx].hash),
+					},
+				})
+			} else {
+				reassign = append(reassign, Reassignment{
+					From: c.virtualNodes[i].id,
+					To:   id,
+					Range: KeyRange{
+						Start: hashToString(incrementHash(lastNode.hash)),
+						End:   hashToString(nodeList[idx].hash),
+					},
+				})
+			}
+			lastNode = nodeList[idx]
 			idx++
 		}
+
 	}
-
-	c.virtualNodes = append(c.virtualNodes, nodeList...)
-
-	sort.Slice(c.virtualNodes, func(i int, j int) bool {
-		return virtualNodeLess(nodeList[i], nodeList[j])
-	})
 
 	if len(reassign) != c.virtualNodesPerGroup {
 		errors.New("reassign wrong number")
 		return nil
 	}
+
+	c.virtualNodes = append(c.virtualNodes, nodeList...)
+
+	sort.Slice(c.virtualNodes, func(i int, j int) bool {
+		return virtualNodeLess(c.virtualNodes[i], c.virtualNodes[j])
+	})
 
 	return reassign
 }
