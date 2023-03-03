@@ -60,24 +60,53 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 		return nil
 	}
 	var reassignments []Reassignment
-	for i := 0; i < len(c.virtualNodes); i++ {
-		if c.node(i).id == id {
+	// for i := 0; i < len(c.virtualNodes); i++ {
+	// 	if c.node(i).id == id {
+	// 		continue
+	// 	}
+	// 	insertCnt := 0
+	// 	var lastNodeIdx = i - 1
+	// 	var currNodeIdx = i
+	// 	for j := i - 1; j > i-len(c.virtualNodes); j-- {
+	// 		if c.node(j).id == id {
+	// 			insertCnt++
+	// 		} else {
+	// 			lastNodeIdx = j
+	// 			break
+	// 		}
+	// 	}
+	// 	for j := lastNodeIdx + 1; j < currNodeIdx; j++ {
+	// 		reassignments = append(reassignments, Reassignment{
+	// 			From: c.node(currNodeIdx).id,
+	// 			To:   c.node(j).id,
+	// 			Range: KeyRange{
+	// 				Start: hashToString(incrementHash(c.node(j - 1).hash)),
+	// 				End:   hashToString(c.node(j).hash),
+	// 			},
+	// 		})
+	// 	}
+	// }
+	bound := len(c.virtualNodes)
+	for i := 0; i < bound; {
+		if c.node(i).id != id {
+			i++
 			continue
 		}
-		insertCnt := 0
-		var lastNodeIdx = i - 1
-		var currNodeIdx = i
-		for j := i - 1; j > i-len(c.virtualNodes); j-- {
-			if c.node(j).id == id {
-				insertCnt++
-			} else {
-				lastNodeIdx = j
-				break
-			}
+		lastIdx := i - 1
+		for c.node(lastIdx).id == id {
+			lastIdx--
 		}
-		for j := lastNodeIdx + 1; j < currNodeIdx; j++ {
+		if len(c.virtualNodes)+lastIdx < bound {
+			bound = len(c.virtualNodes) + lastIdx
+		}
+		nextIdx := i + 1
+		for c.node(nextIdx).id == id {
+			nextIdx++
+		}
+
+		for j := lastIdx + 1; j < nextIdx; j++ {
 			reassignments = append(reassignments, Reassignment{
-				From: c.node(currNodeIdx).id,
+				From: c.node(lastIdx).id,
 				To:   c.node(j).id,
 				Range: KeyRange{
 					Start: hashToString(incrementHash(c.node(j - 1).hash)),
@@ -85,6 +114,7 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 				},
 			})
 		}
+		i = nextIdx + 1
 	}
 	return reassignments
 }
@@ -112,9 +142,8 @@ func (c *ConsistentHash) RemoveReplicaGroup(id uint64) []Reassignment {
 		return nil
 	}
 	var reassignments []Reassignment
-	i := 0
 	bound := len(c.virtualNodes)
-	for i < bound {
+	for i := 0; i < bound; {
 		if c.node(i).id != id {
 			i++
 			continue
