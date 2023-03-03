@@ -20,3 +20,13 @@
 ``TestReadRepair`` test if read repair work
 
 ``TestConsistency`` test with quick write and read see if it is correct
+
+## Partitioning
+### Test Cases
+``TestAddReplicaGroup`` tests add group
+
+``TestRemoveReplicaGroup`` tests remove group
+
+``TestLookup`` test lookup when there is no replica group
+
+``TestConsistency`` test with quick write and read see if it is correct
