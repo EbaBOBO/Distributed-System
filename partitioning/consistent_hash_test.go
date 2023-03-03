@@ -88,3 +88,17 @@ func TestAddReplicaGroup(t *testing.T) {
 	slices.SortFunc(c.virtualNodes, virtualNodeLess)
 	c.AddReplicaGroup(25)
 }
+
+func TestRemoveReplicaGroup(t *testing.T) {
+	c := NewConsistentHash(2)
+	c.hasher = identityHasher
+
+	c.virtualNodes = []virtualNode{
+		newVirtualNode(c, 1, 0),
+		newVirtualNode(c, 1, 1),
+		newVirtualNode(c, 50, 0),
+		newVirtualNode(c, 50, 1),
+	}
+	slices.SortFunc(c.virtualNodes, virtualNodeLess)
+	c.RemoveReplicaGroup(50)
+}

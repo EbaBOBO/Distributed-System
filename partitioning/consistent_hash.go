@@ -101,7 +101,53 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 func (c *ConsistentHash) RemoveReplicaGroup(id uint64) []Reassignment {
 
 	// TODO(students): [Partitioning] Implement me!
-	return nil
+	found := false
+	for _, n := range c.virtualNodes {
+		if n.id == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	var reassignments []Reassignment
+	i := 0
+	for i < len(c.virtualNodes) {
+		if c.node(i).id != id {
+			i++
+			continue
+		}
+		// find last
+		lastIdx := i - 1
+		for c.node(lastIdx).id == id {
+			lastIdx--
+		}
+		// find next
+		nextIdx := i + 1
+		for c.node(nextIdx).id == id {
+			nextIdx++
+		}
+		for j := lastIdx + 1; j < nextIdx; j++ {
+			reassignments = append(reassignments, Reassignment{
+				From: c.node(j).id,
+				To:   c.node(nextIdx).id,
+				Range: KeyRange{
+					Start: hashToString(incrementHash(c.node(j - 1).hash)),
+					End:   hashToString(c.node(j).hash),
+				},
+			})
+		}
+		i = nextIdx + 1
+	}
+	var newList []virtualNode
+	for _, n := range c.virtualNodes {
+		if n.id != id {
+			newList = append(newList, n)
+		}
+	}
+	c.virtualNodes = newList
+	return reassignments
 }
 
 // ======================================
