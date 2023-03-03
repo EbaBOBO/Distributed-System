@@ -163,10 +163,10 @@ func (v *VersionVectorConflictResolver) OnEvent() {
 func (v *VersionVectorConflictResolver) NewClock() VersionVectorClock {
 
 	// TODO(students): [Clocks & Conflict Resolution] Implement me!
-	var newClk VersionVectorClock = VersionVectorClock{}
-	//var newClk VersionVectorClock = VersionVectorClock{
-	//	vector: make(map[uint64]uint64),
-	//}
+	//var newClk VersionVectorClock = VersionVectorClock{}
+	var newClk VersionVectorClock = VersionVectorClock{
+		vector: make(map[uint64]uint64),
+	}
 	v.mu.Lock()
 	for k, val := range v.vector {
 		newClk.vector[k] = val

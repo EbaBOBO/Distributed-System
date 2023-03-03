@@ -114,20 +114,40 @@ func (s *State[T]) safelyUpdateKey(newKV *conflict.KV[T]) (updated bool, mostUpT
 func (s *State[T]) getUpToDateKV(key string, minimumClock T) (kv *conflict.KV[T], found bool) {
 
 	// TODO(students): [Leaderless] Implement me!
+	s.log.Printf("getUpdateKey %v", minimumClock)
 
-	current := s.conflictResolver.NewClock()
-
-	if val, ok := s.localStore.Get(key); ok {
+	tx := s.localStore.BeginTx(true)
+	defer tx.Commit()
+	if current, ok := tx.Get(key); ok {
 		// happens before
-		if current.HappensBefore(minimumClock) {
+		if current.Clock.HappensBefore(minimumClock) {
+			s.log.Printf("getUpdateKey happens before, return nil %v", minimumClock)
 			return nil, true
 		} else {
 			// equal and after
-			return val, true
+			s.log.Printf("getUpdateKey happens equal or after, return nil %v", minimumClock)
+			return current, true
 		}
 	} else {
+		s.log.Printf("getUpdateKey not found %v", minimumClock)
 		return nil, false
 	}
+
+	//current := s.conflictResolver.NewClock()
+	//if val, ok := s.localStore.Get(key); ok {
+	//	// happens before
+	//	if current.HappensBefore(minimumClock) {
+	//		s.log.Printf("getUpdateKey happens before, return nil %v", minimumClock)
+	//		return nil, true
+	//	} else {
+	//		// equal and after
+	//		s.log.Printf("getUpdateKey happens equal or after, return nil %v", minimumClock)
+	//		return val, true
+	//	}
+	//} else {
+	//	s.log.Printf("getUpdateKey not found %v", minimumClock)
+	//	return nil, false
+	//}
 
 	return nil, false
 }
@@ -273,10 +293,10 @@ func (s *State[T]) HandlePeerRead(ctx context.Context, request *pb.Key) (*pb.Han
 		return res, nil
 	}
 	if found {
-		res := &pb.HandlePeerReadReply{Found: true}
+		res := &pb.HandlePeerReadReply{Found: true, ResolvableKv: nil}
 		return res, errors.New("key didn't exist")
 	}
-	res := &pb.HandlePeerReadReply{Found: false}
+	res := &pb.HandlePeerReadReply{Found: false, ResolvableKv: nil}
 	return res, errors.New("HandlePeerRead didn't find")
 }
 
@@ -371,6 +391,7 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 
 	// TODO(students): [Leaderless] Implement me!
 	var replies []*pb.HandlePeerReadReply
+	var mu sync.Mutex
 	kvPairs := make(map[uint64]*conflict.KV[T])
 	err := s.dispatchToPeers(ctx, s.R, func(_ctx context.Context, replicaNodeID uint64) error {
 		conn := s.node.PeerConns[replicaNodeID]
@@ -378,8 +399,10 @@ func (s *State[T]) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.
 		pbKey := pb.Key{Key: r.Key, Clock: clientClock.Proto()}
 		reply, e := replicaRPCClient.HandlePeerRead(ctx, &pbKey)
 		if e == nil {
+			mu.Lock()
 			kvPairs[replicaNodeID] = conflict.KVFromProto[T](reply.GetResolvableKv())
 			replies = append(replies, reply)
+			mu.Unlock()
 		}
 		return nil
 	})

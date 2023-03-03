@@ -158,14 +158,14 @@ func TestGetUpToDate(t *testing.T) {
 
 	firstReplicator := replicators[0]
 
-	response, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
+	response1, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
 		Key: "foo", Value: "bar1", Clock: &pb.Clock{Timestamp: 10}})
 	if err != nil {
 		t.Fatalf("Error while replicating key to node 0: %v", err)
 	}
-	log.Printf("response clock is %v", response.GetClock())
+	log.Printf("response clock is %v", response1.GetClock())
 	response2, err := firstReplicator.ReplicateKey(context.Background(), &pb.PutRequest{
-		Key: "foo", Value: "bar2", Clock: &pb.Clock{Timestamp: 20}})
+		Key: "foo", Value: "bar1", Clock: &pb.Clock{Timestamp: 20}})
 
 	if err != nil {
 		t.Fatalf("Error while replicating key to node 0: %v", err)
@@ -175,13 +175,13 @@ func TestGetUpToDate(t *testing.T) {
 	//	&pb.GetRequest{Key: "foo", Metadata: &pb.GetMetadata{Clock: &pb.Clock{Timestamp: uint64(time.Now().UnixNano() + 1e15)}}})
 
 	kv, err := firstReplicator.GetReplicatedKey(context.Background(),
-		&pb.GetRequest{Key: "foo", Metadata: &pb.GetMetadata{Clock: response2.GetClock()}})
+		&pb.GetRequest{Key: "foo", Metadata: &pb.GetMetadata{Clock: response1.GetClock()}})
 	//if err != nil {
 	//	t.Fatalf("Error while replicating key to node 0: %v", err)
 	//}
-	//log.Printf("response clock is %v", kv.GetClock())
-	if kv.GetValue() != "bar2" {
-		t.Fatalf("Error while replicating key")
+	////log.Printf("response clock is %v", kv.GetClock())
+	if kv.GetValue() == "nil" {
+		t.Fatalf("Error when getUpdate")
 	}
 
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
+	"sort"
 )
 
 // Lookup returns the ID of the replica group to which the specified key is assigned.
@@ -19,7 +20,16 @@ import (
 func (c *ConsistentHash) Lookup(key string) (id uint64, rewrittenKey string, err error) {
 
 	// TODO(students): [Partitioning] Implement me!
-	return 0, "", errors.New("not implemented")
+	hash := c.keyHash(key)
+	rewrittenKey = hashToString(hash)
+	target := virtualNode{hash: hash}
+	for i := 0; i < len(c.virtualNodes); i++ {
+		if virtualNodeCmp(target, c.virtualNodes[i]) <= 0 {
+			id = c.virtualNodes[i].id
+			return id, rewrittenKey, nil
+		}
+	}
+	return 0, "", errors.New("not found")
 }
 
 // AddReplicaGroup adds a replica group to the hash ring, returning a list of key ranges that need
@@ -35,7 +45,46 @@ func (c *ConsistentHash) Lookup(key string) (id uint64, rewrittenKey string, err
 func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 
 	// TODO(students): [Partitioning] Implement me!
-	return nil
+
+	// check exists
+	nodeList := c.virtualNodesForGroup(id)
+	if len(nodeList) > 0 {
+		return nil
+	}
+	// sort nodes list
+	sort.Slice(nodeList, func(i int, j int) bool {
+		return virtualNodeLess(nodeList[i], nodeList[j])
+	})
+
+	// reassign
+	idx := 0
+	var reassign []Reassignment
+	for i := 0; i < len(c.virtualNodes); i++ {
+		for (idx <= c.virtualNodesPerGroup) && virtualNodeCmp(c.virtualNodes[i], nodeList[idx]) <= 0 {
+			reassign = append(reassign, Reassignment{
+				From: c.virtualNodes[i].id,
+				To:   id,
+				Range: KeyRange{
+					Start: hashToString(incrementHash(c.virtualNodes[i].hash)),
+					End:   hashToString(nodeList[idx].hash),
+				},
+			})
+			idx++
+		}
+	}
+
+	c.virtualNodes = append(c.virtualNodes, nodeList...)
+
+	sort.Slice(c.virtualNodes, func(i int, j int) bool {
+		return virtualNodeLess(nodeList[i], nodeList[j])
+	})
+
+	if len(reassign) != c.virtualNodesPerGroup {
+		errors.New("reassign wrong number")
+		return nil
+	}
+
+	return reassign
 }
 
 // RemoveReplicaGroup removes a replica group from the hash ring, returning a list of key
