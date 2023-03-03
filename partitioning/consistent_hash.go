@@ -53,10 +53,12 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 			return nil
 		}
 	}
-
 	newNodes := c.virtualNodesForGroup(id)
 	c.virtualNodes = append(c.virtualNodes, newNodes...)
 	slices.SortFunc(c.virtualNodes, virtualNodeLess)
+	if len(c.virtualNodes) == len(newNodes) {
+		return nil
+	}
 	var reassignments []Reassignment
 	for i := 0; i < len(c.virtualNodes); i++ {
 		if c.node(i).id == id {
