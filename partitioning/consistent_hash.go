@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"math"
-	"sort"
+
+	"golang.org/x/exp/slices"
 )
 
 // Lookup returns the ID of the replica group to which the specified key is assigned.
@@ -19,16 +21,17 @@ import (
 func (c *ConsistentHash) Lookup(key string) (id uint64, rewrittenKey string, err error) {
 
 	// TODO(students): [Partitioning] Implement me!
+	if len(c.virtualNodes) == 0 {
+		return 0, "", errors.New("No replica groups")
+	}
 	hash := c.keyHash(key)
 	rewrittenKey = hashToString(hash)
-	target := &c.virtualNodes[0]
-	for i := 1; i < len(c.virtualNodes); i++ {
+	for i := 0; i < len(c.virtualNodes); i++ {
 		if flag := bytes.Compare(hash[:], c.virtualNodes[i].hash[:]); flag == -1 || flag == 0 {
-			target = &c.virtualNodes[i]
-			break
+			return c.virtualNodes[i].id, hashToString(hash), nil
 		}
 	}
-	return target.id, hashToString(hash), nil
+	return c.virtualNodes[0].id, hashToString(hash), nil
 }
 
 // AddReplicaGroup adds a replica group to the hash ring, returning a list of key ranges that need
@@ -50,35 +53,37 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 			return nil
 		}
 	}
+
 	newNodes := c.virtualNodesForGroup(id)
-	newNodesList := append(c.virtualNodes, newNodes...)
-	sort.Slice(newNodesList, func(i, j int) bool {
-		return virtualNodeLess(newNodesList[i], newNodesList[j])
-	})
+	c.virtualNodes = append(c.virtualNodes, newNodes...)
+	slices.SortFunc(c.virtualNodes, virtualNodeLess)
 	var reassignments []Reassignment
-	for i := 1; i < len(newNodesList); i++ {
-		if newNodesList[i-1].id != id && newNodesList[i].id == id {
+	for i := 0; i < len(c.virtualNodes); i++ {
+		if c.node(i).id == id {
+			continue
+		}
+		insertCnt := 0
+		var lastNodeIdx = i - 1
+		var currNodeIdx = i
+		for j := i - 1; j > i-len(c.virtualNodes); j-- {
+			if c.node(j).id == id {
+				insertCnt++
+			} else {
+				lastNodeIdx = j
+				break
+			}
+		}
+		for j := lastNodeIdx + 1; j < currNodeIdx; j++ {
 			reassignments = append(reassignments, Reassignment{
-				From: newNodesList[i].id,
-				To:   newNodesList[i-1].id,
+				From: c.node(currNodeIdx).id,
+				To:   c.node(j).id,
 				Range: KeyRange{
-					Start: hashToString(newNodesList[i-1].hash),
-					End:   hashToString(newNodesList[i].hash),
+					Start: hashToString(incrementHash(c.node(j - 1).hash)),
+					End:   hashToString(c.node(j).hash),
 				},
 			})
 		}
 	}
-	if newNodesList[len(newNodesList)-1].id == id && newNodesList[0].id != id {
-		reassignments = append(reassignments, Reassignment{
-			From: newNodesList[0].id,
-			To:   newNodesList[len(newNodesList)-1].id,
-			Range: KeyRange{
-				Start: hashToString(newNodesList[len(newNodesList)-1].hash),
-				End:   hashToString(newNodesList[0].hash),
-			},
-		})
-	}
-	c.virtualNodes = newNodesList
 	return reassignments
 }
 

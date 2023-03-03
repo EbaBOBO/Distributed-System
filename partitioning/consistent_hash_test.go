@@ -74,3 +74,17 @@ func TestConsistentHash_Lookup_SimpleIdentity(t *testing.T) {
 	binary.BigEndian.PutUint64(byteKey, 51)
 	checkLookup(t, "Lookup(51)", c, string(byteKey), 50)
 }
+
+func TestAddReplicaGroup(t *testing.T) {
+	c := NewConsistentHash(2)
+	c.hasher = identityHasher
+
+	c.virtualNodes = []virtualNode{
+		newVirtualNode(c, 1, 0),
+		newVirtualNode(c, 1, 1),
+		newVirtualNode(c, 50, 0),
+		newVirtualNode(c, 50, 1),
+	}
+	slices.SortFunc(c.virtualNodes, virtualNodeLess)
+	c.AddReplicaGroup(25)
+}
