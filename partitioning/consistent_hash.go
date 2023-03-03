@@ -113,7 +113,8 @@ func (c *ConsistentHash) RemoveReplicaGroup(id uint64) []Reassignment {
 	}
 	var reassignments []Reassignment
 	i := 0
-	for i < len(c.virtualNodes) {
+	bound := len(c.virtualNodes)
+	for i < bound {
 		if c.node(i).id != id {
 			i++
 			continue
@@ -122,6 +123,9 @@ func (c *ConsistentHash) RemoveReplicaGroup(id uint64) []Reassignment {
 		lastIdx := i - 1
 		for c.node(lastIdx).id == id {
 			lastIdx--
+		}
+		if len(c.virtualNodes)+lastIdx < bound {
+			bound = len(c.virtualNodes) + lastIdx
 		}
 		// find next
 		nextIdx := i + 1
