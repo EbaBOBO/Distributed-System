@@ -6,8 +6,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"golang.org/x/exp/slices"
 	"math"
-	"sort"
 )
 
 // Lookup returns the ID of the replica group to which the specified key is assigned.
@@ -51,22 +52,25 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 	// TODO(students): [Partitioning] Implement me!
 
 	// check exists
+	fmt.Println("Start add group")
 	nodeList := c.virtualNodesForGroup(id)
-	if len(nodeList) > 0 {
+	if len(nodeList) == 0 {
 		return nil
 	}
 	// sort nodes list
-	sort.Slice(nodeList, func(i int, j int) bool {
-		return virtualNodeLess(nodeList[i], nodeList[j])
-	})
+	slices.SortFunc(nodeList, virtualNodeLess)
 
 	// reassign
 	idx := 0
 	var reassign []Reassignment
-
+	//fmt.Println(len(c.virtualNodes))
 	for i := 0; i < len(c.virtualNodes); i++ {
 		lastNode := c.virtualNodes[i]
-		for (idx <= c.virtualNodesPerGroup) && virtualNodeCmp(c.virtualNodes[i], nodeList[idx]) <= 0 {
+		//fmt.Println("Current group id: ")
+		//fmt.Println(c.virtualNodes[i].id)
+		for (idx < c.virtualNodesPerGroup) && virtualNodeCmp(c.virtualNodes[i], nodeList[idx]) <= 0 {
+			//fmt.Println("Start insert Node")
+			//fmt.Println(lastNode.id)
 			if lastNode.id != id {
 				reassign = append(reassign, Reassignment{
 					From: c.virtualNodes[i].id,
@@ -89,6 +93,7 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 			lastNode = nodeList[idx]
 			idx++
 		}
+		//fmt.Println("End insert Node")
 
 	}
 
@@ -99,9 +104,7 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 
 	c.virtualNodes = append(c.virtualNodes, nodeList...)
 
-	sort.Slice(c.virtualNodes, func(i int, j int) bool {
-		return virtualNodeLess(c.virtualNodes[i], c.virtualNodes[j])
-	})
+	slices.SortFunc(c.virtualNodes, virtualNodeLess)
 
 	return reassign
 }
