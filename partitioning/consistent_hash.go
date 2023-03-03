@@ -106,7 +106,7 @@ func (c *ConsistentHash) AddReplicaGroup(id uint64) []Reassignment {
 
 		for j := lastIdx + 1; j < nextIdx; j++ {
 			reassignments = append(reassignments, Reassignment{
-				From: c.node(lastIdx).id,
+				From: c.node(nextIdx).id,
 				To:   c.node(j).id,
 				Range: KeyRange{
 					Start: hashToString(incrementHash(c.node(j - 1).hash)),
