@@ -3,16 +3,19 @@ package tapestry
 import (
 	"context"
 	"fmt"
+	"log"
 	"modist/orchestrator/node"
 	pb "modist/proto"
-	"strconv"
 	"strings"
 	"sync"
 )
 
 type State struct {
-	tap *Node
-	mu  sync.Mutex
+	tapestryNode *TapestryNode
+	mu           sync.Mutex
+
+	// Observability
+	log *log.Logger
 
 	// The public-facing API that this router must implement
 	pb.RouterServer
@@ -20,59 +23,55 @@ type State struct {
 
 type Args struct {
 	Node      *node.Node
-	ConnectTo string
+	Join      bool   // True if we are connecting to an existing Tapestry mesh
+	ConnectTo uint64 // If we are connecting to an existing Tapestry mesh, the ID of the node to connect to
 }
 
-func Configure(args any) pb.RouterServer {
+// Configure is called by the orchestrator to start this node
+//
+// The "args" are any to support any router that might need arbitrary
+// set of configuration values.
+func Configure(args any) *State {
 	a := args.(Args)
 
-	grpcServer := a.Node.GrpcServer
-	tap, err := StartTapestry(grpcServer, a.Node.Addr.String(), MakeID(fmt.Sprint(a.Node.ID)), a.ConnectTo)
+	node := a.Node
+
+	tn, err := StartTapestryNode(node, a.ConnectTo, a.Join)
 	if err != nil {
+		node.Log.Printf(err.Error())
 		return nil
 	}
 
 	s := &State{
-		tap: tap,
+		tapestryNode: tn,
+		log:          node.Log,
 	}
 
+	// We registered TapestryRPCServer when calling NewTapestryNode above so we only need to
+	// register RouterServer here
+	s.log.Printf("starting gRPC server at %s", a.Node.Addr.Host)
+	grpcServer := a.Node.GrpcServer
 	pb.RegisterRouterServer(grpcServer, s)
 	go grpcServer.Serve(a.Node.Listener)
 
 	return s
 }
 
-/*
-Parse an ID from String
-*/
-func MakeID(stringID string) ID {
-	var id ID
-
-	for i := 0; i < DIGITS && i < len(stringID); i++ {
-		d, err := strconv.ParseInt(stringID[i:i+1], 16, 0)
-		if err != nil {
-			return id
-		}
-		id[i] = Digit(d)
-	}
-	for i := len(stringID); i < DIGITS; i++ {
-		id[i] = Digit(0)
-	}
-
-	return id
-}
-
-func (s *State) Lookup(ctx context.Context, r *pb.RouteLookupRequest) (*pb.RouteLookupReply, error) {
+func (s *State) Lookup(
+	ctx context.Context,
+	r *pb.RouteLookupRequest,
+) (*pb.RouteLookupReply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Note: Separated by comma
-	addr, err := s.tap.Get(fmt.Sprint(r.Id))
+	addr, err := s.tapestryNode.Get(fmt.Sprint(r.Id))
 	if err != nil {
 		return nil, err
 	}
 
 	addrs := strings.Split(string(addr), ",")
+	fmt.Println(addrs)
 
 	resp := &pb.RouteLookupReply{
 		Addrs: addrs,
@@ -80,32 +79,38 @@ func (s *State) Lookup(ctx context.Context, r *pb.RouteLookupRequest) (*pb.Route
 	return resp, nil
 }
 
-func (s *State) Publish(ctx context.Context, r *pb.RoutePublishRequest) (*pb.RoutePublishReply, error) {
+func (s *State) Publish(
+	ctx context.Context,
+	r *pb.RoutePublishRequest,
+) (*pb.RoutePublishReply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	addr, err := s.tap.Get(fmt.Sprint(r.Id))
+	addr, err := s.tapestryNode.Get(fmt.Sprint(r.Id))
 	if err != nil {
 		addr = []byte{}
 	}
 
 	if len(addr) > 0 {
-		addr = append(addr, []byte(",")...)
+		addr = append(addr, ',')
 	}
 
 	addr = append(addr, []byte(r.Addr)...)
-	err = s.tap.Store(fmt.Sprint(r.Id), []byte(addr))
+	err = s.tapestryNode.Store(fmt.Sprint(r.Id), []byte(addr))
 	if err != nil {
 		return nil, err
 	}
 	return &pb.RoutePublishReply{}, nil
 }
 
-func (s *State) Unpublish(ctx context.Context, r *pb.RouteUnpublishRequest) (*pb.RouteUnpublishReply, error) {
+func (s *State) Unpublish(
+	ctx context.Context,
+	r *pb.RouteUnpublishRequest,
+) (*pb.RouteUnpublishReply, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	addr, err := s.tap.Get(fmt.Sprint(r.Id))
+	addr, err := s.tapestryNode.Get(fmt.Sprint(r.Id))
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +123,7 @@ func (s *State) Unpublish(ctx context.Context, r *pb.RouteUnpublishRequest) (*pb
 		}
 	}
 
-	err = s.tap.Store(fmt.Sprint(r.Id), []byte(strings.Join(addrs, ",")))
+	err = s.tapestryNode.Store(fmt.Sprint(r.Id), []byte(strings.Join(addrs, ",")))
 	if err != nil {
 		return nil, err
 	}

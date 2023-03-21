@@ -28,3 +28,5 @@
 ``TestRemoveReplicaGroup`` tests remove group
 
 ``TestLookup`` test lookup when there is no replica group
+
+``TestConsistency`` test with quick write and read see if it is correct

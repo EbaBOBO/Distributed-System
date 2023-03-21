@@ -7,112 +7,111 @@
 package tapestry
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
 
-// LocationMap is struct containing objects being advertised to the tapestry.
+// LocationMap is a struct containing objects being advertised to the tapestry.
 // Object mappings are stored in the root node. An object can be advertised by multiple nodes.
 // Objects time out after some amount of time if the advertising node is not heard from.
 type LocationMap struct {
-	Data  map[string]map[RemoteNode]*time.Timer // Multimap: stores multiple nodes per key, and each node has a timeout
-	mutex sync.Mutex                            // To manage concurrent access to the location map
+	Data  map[string]map[ID]*time.Timer // Multimap: stores multiple nodes per key, and each node has a timeout
+	mutex sync.Mutex                    // To manage concurrent access to the location map
 }
 
 // NewLocationMap creates a new objectstore.
 func NewLocationMap() *LocationMap {
 	m := new(LocationMap)
-	m.Data = make(map[string]map[RemoteNode]*time.Timer)
+	m.Data = make(map[string]map[ID]*time.Timer)
 	return m
 }
 
 // Register registers the specified node as having advertised the key.
 // Times out after the specified duration.
-func (store *LocationMap) Register(key string, replica RemoteNode, timeout time.Duration) bool {
+func (store *LocationMap) Register(key string, node ID, timeout time.Duration) bool {
 	store.mutex.Lock()
+	defer store.mutex.Unlock()
 
 	// Get the value set for the object
 	_, exists := store.Data[key]
 	if !exists {
-		store.Data[key] = make(map[RemoteNode]*time.Timer)
+		store.Data[key] = make(map[ID]*time.Timer)
 	}
 
 	// Add the value to the value set
-	timer, exists := store.Data[key][replica]
+	timer, exists := store.Data[key][node]
 	if !exists {
-		store.Data[key][replica] = store.newTimeout(key, replica, timeout)
+		store.Data[key][node] = store.newTimeout(key, node, timeout)
 	} else {
 		timer.Reset(TIMEOUT)
 	}
-
-	store.mutex.Unlock()
 
 	return !exists
 }
 
 // RegisterAll registers all of the provided nodes and keys.
-func (store *LocationMap) RegisterAll(replicamap map[string][]RemoteNode, timeout time.Duration) {
+func (store *LocationMap) RegisterAll(nodeMap map[string][]ID, timeout time.Duration) {
 	store.mutex.Lock()
+	defer store.mutex.Unlock()
 
-	for key, replicas := range replicamap {
+	for key, nodes := range nodeMap {
 		_, exists := store.Data[key]
 		if !exists {
-			store.Data[key] = make(map[RemoteNode]*time.Timer)
+			store.Data[key] = make(map[ID]*time.Timer)
 		}
-		for _, replica := range replicas {
-			store.Data[key][replica] = store.newTimeout(key, replica, timeout)
+		for _, node := range nodes {
+			store.Data[key][node] = store.newTimeout(key, node, timeout)
 		}
 	}
-
-	store.mutex.Unlock()
 }
 
 // Unregister unregisters the specified node for the specified key.
 // Returns false if the node was not registered for the key.
-func (store *LocationMap) Unregister(key string, replica RemoteNode) bool {
+func (store *LocationMap) Unregister(key string, node ID) bool {
 	store.mutex.Lock()
+	defer store.mutex.Unlock()
 
-	_, existed := store.Data[key][replica]
-	delete(store.Data[key], replica)
-
-	store.mutex.Unlock()
+	_, existed := store.Data[key][node]
+	delete(store.Data[key], node)
 
 	return existed
 }
 
 // UnregisterAll unregisters all nodes that are registered for the provided key.
 // Returns all replicas that were advertising the key.
-func (store *LocationMap) UnregisterAll(key string) (replicas []RemoteNode) {
+func (store *LocationMap) UnregisterAll(key string) (nodes []ID) {
 	store.mutex.Lock()
+	defer store.mutex.Unlock()
 
-	replicas = slice(store.Data[key])
+	nodes = slice(store.Data[key])
 	delete(store.Data, key)
-
-	store.mutex.Unlock()
 
 	return
 }
 
 // Get the nodes that are advertising a given key.
-func (store *LocationMap) Get(key string) (replicas []RemoteNode) {
+func (store *LocationMap) Get(key string) (nodes []ID) {
 	store.mutex.Lock()
+	defer store.mutex.Unlock()
 
-	replicas = slice(store.Data[key])
-
-	store.mutex.Unlock()
-
+	nodes = slice(store.Data[key])
 	return
 }
 
 // GetTransferRegistrations removes and returns all objects that should be transferred to the remote node.
-func (store *LocationMap) GetTransferRegistrations(local RemoteNode, remote RemoteNode) map[string][]RemoteNode {
-	transfer := make(map[string][]RemoteNode)
+func (store *LocationMap) GetTransferRegistrations(
+	localId ID,
+	remoteNodeId ID,
+) map[string][]ID {
+	transfer := make(map[string][]ID)
 
 	store.mutex.Lock()
+	defer store.mutex.Unlock()
 
 	for key, values := range store.Data {
 		// Compare the first digit after the prefix
-		if Hash(key).IsNewRoute(remote.ID, local.ID) {
+		if Hash(key).IsNewRoute(remoteNodeId, localId) {
 			transfer[key] = slice(values)
 		}
 	}
@@ -121,22 +120,24 @@ func (store *LocationMap) GetTransferRegistrations(local RemoteNode, remote Remo
 		delete(store.Data, key)
 	}
 
-	store.mutex.Unlock()
-
 	return transfer
 }
 
 // Utility method. Creates an expiry timer for the (key, value) pair.
-func (store *LocationMap) newTimeout(key string, replica RemoteNode, timeout time.Duration) *time.Timer {
+func (store *LocationMap) newTimeout(
+	key string,
+	node ID,
+	timeout time.Duration,
+) *time.Timer {
 	expire := func() {
-		Debug.Printf("Expiring %v for node %v\n", key, replica)
+		fmt.Printf("Expiring %v for node %v\n", key, node)
 
 		store.mutex.Lock()
 
-		timer, exists := store.Data[key][replica]
+		timer, exists := store.Data[key][node]
 		if exists {
 			timer.Stop()
-			delete(store.Data[key], replica)
+			delete(store.Data[key], node)
 		}
 
 		store.mutex.Unlock()
@@ -146,7 +147,7 @@ func (store *LocationMap) newTimeout(key string, replica RemoteNode, timeout tim
 }
 
 // Utility function to get the keys of a map
-func slice(valmap map[RemoteNode]*time.Timer) (values []RemoteNode) {
+func slice(valmap map[ID]*time.Timer) (values []ID) {
 	for value := range valmap {
 		values = append(values, value)
 	}

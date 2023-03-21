@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"modist/client"
 	"modist/orchestrator/node"
 	"modist/partitioning"
@@ -89,11 +90,12 @@ func (h *Handler) configureRouters(cfg Config) []pb.RouterServer {
 			server = localrouter.Configure(localrouter.Args{Node: h.routerNodes[i]})
 		case "tapestry":
 			if i == 0 {
-				server = tapestry.Configure(tapestry.Args{Node: h.routerNodes[i], ConnectTo: ""})
+				server = tapestry.Configure(tapestry.Args{Node: h.routerNodes[i], Join: false})
 			} else {
 				server = tapestry.Configure(tapestry.Args{
 					Node:      h.routerNodes[i],
-					ConnectTo: fmt.Sprintf("%s:%s", h.routerNodes[0].Addr.Host, h.routerNodes[0].Addr.Port()),
+					Join:      true,
+					ConnectTo: h.routerNodes[0].ID,
 				})
 			}
 		}
@@ -142,7 +144,8 @@ func (h *Handler) configurePartitioners(
 			)
 		}
 
-		routerServers[0].Publish(ctx, &pb.RoutePublishRequest{
+		serverNum := rand.Intn(len(routerServers))
+		routerServers[serverNum].Publish(ctx, &pb.RoutePublishRequest{
 			Id:   partitionerNode.ID,
 			Addr: partitionerNode.Addr.Host,
 		})
@@ -197,7 +200,8 @@ func (h *Handler) configureReplicators(
 
 		// Register each node with the routing layer
 		for _, node := range cluster.Nodes {
-			routerServers[0].Publish(ctx, &pb.RoutePublishRequest{
+			serverNum := rand.Intn(len(routerServers))
+			routerServers[serverNum].Publish(ctx, &pb.RoutePublishRequest{
 				Id:   cluster.ID,
 				Addr: node.Addr.Host,
 			})

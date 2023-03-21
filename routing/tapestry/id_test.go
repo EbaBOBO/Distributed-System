@@ -7,20 +7,16 @@ import (
 
 func TestEnsureConsts(t *testing.T) {
 	if BASE != int(16) {
-		t.Errorf("ID tests implemented for base 16 ids, current BASE is %v, re-run tests with correct BASE", BASE)
+		t.Errorf(
+			"ID tests implemented for base 16 ids, current BASE is %v, re-run tests with correct BASE",
+			BASE,
+		)
 	}
 	if DIGITS != int(40) {
-		t.Errorf("ID tests implemented for 40-digit ids, current DIGITS is %v, re-run tests with correct DIGITS", DIGITS)
-	}
-}
-
-func TestRandom(t *testing.T) {
-	for i := 0; i < 100; i++ {
-		a := RandomID()
-		b := RandomID()
-		if a == b {
-			t.Errorf("Two random IDs were the same: %v and %v", a, b)
-		}
+		t.Errorf(
+			"ID tests implemented for 40-digit ids, current DIGITS is %v, re-run tests with correct DIGITS",
+			DIGITS,
+		)
 	}
 }
 
@@ -187,7 +183,20 @@ func TestDigitDistance(t *testing.T) {
 		closer := idme.Closer(ida, idb)
 		expected := c.expected
 		if closer != expected {
-			t.Errorf("Expected (\"%v\".Closer(\"%v\", \"%v\") == %v, but was %v.\nidme=%v (%v)\nida= %v (%v)\nidb= %v (%v)", c.me, c.a, c.b, expected, closer, idme, c.me, ida, c.a, idb, c.b)
+			t.Errorf(
+				"Expected (\"%v\".Closer(\"%v\", \"%v\") == %v, but was %v.\nidme=%v (%v)\nida= %v (%v)\nidb= %v (%v)",
+				c.me,
+				c.a,
+				c.b,
+				expected,
+				closer,
+				idme,
+				c.me,
+				ida,
+				c.a,
+				idb,
+				c.b,
+			)
 		}
 	}
 }
