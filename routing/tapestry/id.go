@@ -14,9 +14,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"math/big"
-	"math/rand"
 	"strconv"
-	"time"
 )
 
 // An ID is a digit array
@@ -25,16 +23,61 @@ type ID [DIGITS]Digit
 // Digit is just a typedef'ed uint8
 type Digit uint8
 
-// Random number generator for generating random node ID
-var random = rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
-
-// RandomID returns a random ID.
-func RandomID() ID {
-	var id ID
-	for i := range id {
-		id[i] = Digit(random.Intn(BASE))
+// MakeID creates an ID given a uint64
+// Used to convert node.ID to TapestryNode.Id
+func MakeID(id uint64) (convertedId ID) {
+	stringId := strconv.FormatUint(id, 16)
+	for i := 0; i < DIGITS && i < len(stringId); i++ {
+		d, err := strconv.ParseInt(stringId[i:i+1], 16, 0)
+		if err != nil {
+			return convertedId
+		}
+		convertedId[i] = Digit(d)
 	}
-	return id
+	for i := len(stringId); i < DIGITS; i++ {
+		convertedId[i] = Digit(0)
+	}
+
+	return convertedId
+}
+
+// Uses MakeID to create ID from hex string
+// Used for testing purposes
+func MakeIDFromHexString(id string) (convertedID ID) {
+	parsedId, err := strconv.ParseUint(id, 16, 64)
+	if err != nil {
+		return
+	}
+
+	return MakeID(parsedId)
+}
+
+// RetrieveID converts an ID to a uint64.
+// Used to convert TapestryNode.Id to node.ID. Note that an ID of 100... may correspond to a
+// uint64 of 1, 10, 100, etc. but we only want to select ones that are valid IDs for peer nodes.
+func (local *TapestryNode) RetrieveID(id ID) (convertedID uint64) {
+	var stringId string
+
+	// Find position of last digit that is not 0
+	j := DIGITS - 1
+	for j >= 0 && id[j] == 0 {
+		j--
+	}
+
+	for k := 0; k < DIGITS; k++ {
+		d := strconv.FormatUint(uint64(id[k]), 16)
+		stringId += d
+
+		if k >= j {
+			// For each possible ID, check if the converted ID is in PeerNodes
+			convertedId, _ := strconv.ParseUint(stringId, 16, 64)
+			if _, ok := local.Node.PeerNodes[convertedId]; ok {
+				return convertedId
+			}
+		}
+	}
+
+	return 0
 }
 
 // Hash hashes the string to an ID
@@ -68,10 +111,10 @@ func SharedPrefixLength(a ID, b ID) (i int) {
 // In our surrogate routing, we move right from the missing cell until we find a non-missing cell
 // with a node.
 //
-//		The better choice in routing between newId and currentId is the id that:
-//	 - has the longest shared prefix with id
-//	 - if both have prefix of length n, which input has a better (n+1)th digit?
-//	 - if both have the same (n+1)th digit, consider (n+2)th digit, etc.
+// The better choice in routing between newId and currentId is the id that:
+//   - has the longest shared prefix with id
+//   - if both have prefix of length n, which input has a better (n+1)th digit?
+//   - if both have the same (n+1)th digit, consider (n+2)th digit, etc.
 //
 // We define a "better" digit as the closer digit when moving right from id.
 // HINT: We can use MOD for this comparison.
@@ -97,7 +140,7 @@ func (id ID) IsNewRoute(newId ID, currentId ID) bool {
 //
 // Return true if a is closer than b.
 // Return false if b is closer than a, or if a == b.
-func (id ID) Closer(first ID, second ID) bool {
+func (id ID) Closer(a ID, b ID) bool {
 	// TODO(students): [Tapestry] Implement me!
 	return false
 }
@@ -120,6 +163,30 @@ func (id ID) String() string {
 		buf.WriteString(d.String())
 	}
 	return buf.String()
+}
+
+// ParseID parses an ID from String
+func ParseID(stringID string) (ID, error) {
+	var id ID
+
+	if len(stringID) != DIGITS {
+		return id, fmt.Errorf(
+			"Cannot parse %v as ID, requires length %v, actual length %v",
+			stringID,
+			DIGITS,
+			len(stringID),
+		)
+	}
+
+	for i := 0; i < DIGITS; i++ {
+		d, err := strconv.ParseInt(stringID[i:i+1], 16, 0)
+		if err != nil {
+			return id, err
+		}
+		id[i] = Digit(d)
+	}
+
+	return id, nil
 }
 
 // String representation of a digit is its hex value
@@ -145,26 +212,25 @@ func idFromBytes(b []byte) (i ID) {
 	return
 }
 
-// ParseID parses an ID from String
-func ParseID(stringID string) (ID, error) {
-	var id ID
-
-	if len(stringID) != DIGITS {
-		return id, fmt.Errorf(
-			"Cannot parse %v as ID, requires length %v, actual length %v",
-			stringID,
-			DIGITS,
-			len(stringID),
-		)
+// Parses a slice of IDs into a slice of strings
+func idsToStringSlice(ids []ID) []string {
+	stringIDs := make([]string, 0)
+	for _, id := range ids {
+		stringIDs = append(stringIDs, id.String())
 	}
+	return stringIDs
+}
 
-	for i := 0; i < DIGITS; i++ {
-		d, err := strconv.ParseInt(stringID[i:i+1], 16, 0)
+// Parses a slice of strings into a slice of IDs
+func stringSliceToIds(stringIDs []string) ([]ID, error) {
+	IDs := make([]ID, 0)
+	for _, stringID := range stringIDs {
+		id, err := ParseID(stringID)
 		if err != nil {
-			return id, err
+			return nil, err
 		}
-		id[i] = Digit(d)
-	}
 
-	return id, nil
+		IDs = append(IDs, id)
+	}
+	return IDs, nil
 }

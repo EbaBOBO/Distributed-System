@@ -9,14 +9,13 @@
 package tapestry
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"net"
-	"os"
-	"time"
-
+	"log"
+	"modist/orchestrator/node"
 	pb "modist/proto"
-
-	"google.golang.org/grpc"
+	"time"
 )
 
 // BASE is the base of a digit of an ID.  By default, a digit is base-16.
@@ -40,152 +39,72 @@ const REPUBLISH = 10 * time.Second
 // TIMEOUT is object timeout interval for nodes storing objects.
 const TIMEOUT = 25 * time.Second
 
-// Node is the main struct for the local Tapestry node. Methods can be invoked locally on this struct.
-type Node struct {
-	pb.UnsafeTapestryRPCServer
-	Node           RemoteNode    // The ID and address of this node
+// TapestryNode is the main struct for the local Tapestry node. Methods can be invoked locally on this struct.
+type TapestryNode struct {
+	Node *node.Node // Node that this Tapestry node is part of
+	Id   ID         // ID of node in the form of a slice (makes it easier to iterate)
+
 	Table          *RoutingTable // The routing table
 	Backpointers   *Backpointers // Backpointers to keep track of other nodes that point to us
 	LocationsByKey *LocationMap  // Stores keys for which this node is the root
 	blobstore      *BlobStore    // Stores blobs on the local node
-	server         *grpc.Server
+
+	// Observability
+	log *log.Logger
+
+	// These functions are the internal, private RPCs for a routing node using Tapestry
+	pb.UnsafeTapestryRPCServer
 }
 
-func (local *Node) String() string {
-	return fmt.Sprintf("Tapestry Node %v at %v", local.Node.ID, local.Node.Address)
-}
-
-// ID returns the tapestry node's ID in string format
-func (local *Node) ID() string {
-	return local.Node.ID.String()
-}
-
-// Addr returns the tapestry node's address in string format
-func (local *Node) Addr() string {
-	return local.Node.Address
+func (local *TapestryNode) String() string {
+	return fmt.Sprint(local.Id)
 }
 
 // Called in tapestry initialization to create a tapestry node struct
-func newTapestryNode(node RemoteNode) *Node {
-	serverOptions := []grpc.ServerOption{}
-	n := new(Node)
+func newTapestryNode(node *node.Node) *TapestryNode {
+	tn := new(TapestryNode)
 
-	n.Node = node
-	n.Table = NewRoutingTable(node)
-	n.Backpointers = NewBackpointers(node)
-	n.LocationsByKey = NewLocationMap()
-	n.blobstore = NewBlobStore()
-	n.server = grpc.NewServer(serverOptions...)
+	tn.Node = node
+	tn.Id = MakeID(node.ID)
+	tn.Table = NewRoutingTable(tn.Id)
+	tn.Backpointers = NewBackpointers(tn.Id)
+	tn.LocationsByKey = NewLocationMap()
+	tn.blobstore = NewBlobStore()
 
-	return n
+	tn.log = node.Log
+
+	return tn
 }
 
 // Start Tapestry Node
-func StartTapestry(
-	server *grpc.Server,
-	address string,
-	id ID,
-	connectTo string,
-) (tapestry *Node, err error) {
-	// Get the port we are bound to
-	_, actualport, err := net.SplitHostPort(address) //fmt.Sprintf("%v:%v", name, port)
-	if err != nil {
-		return nil, err
-	}
-
-	// The actual address of this node. NOTE: If gRPC calls fail with deadline exceeded errors,
-	// this could be that it is unable to resolve the computer's hostname to the local IP
-	// address. Try uncommenting the below line if this happens to you (please do not check this
-	// change into your Git repo).
-	name := "127.0.0.1"
-	address = fmt.Sprintf("%s:%s", name, actualport)
-
+func StartTapestryNode(node *node.Node, connectTo uint64, join bool) (tn *TapestryNode, err error) {
 	// Create the local node
-	tapestry = newTapestryNode(RemoteNode{ID: id, Address: address})
-	tapestry.server = server
+	tn = newTapestryNode(node)
 
-	fmt.Printf("Created tapestry node %v\n", tapestry)
-	Trace.Printf("Created tapestry node")
+	tn.log.Printf("Created tapestry node %v\n", tn)
 
-	pb.RegisterTapestryRPCServer(server, tapestry)
-	fmt.Printf("Registered RPC Server\n")
+	grpcServer := tn.Node.GrpcServer
+	pb.RegisterTapestryRPCServer(grpcServer, tn)
 
-	// If specified, connect to the provided address
-	if connectTo != "" {
-		// Get the node we're joining
-		node, err := SayHelloRPC(connectTo, tapestry.Node)
-		if err != nil {
+	// If specified, connect to the provided ID
+	if join {
+		// If provided ID doesn't exist, return an error
+		if _, ok := node.PeerConns[connectTo]; !ok {
 			return nil, fmt.Errorf(
-				"Error joining existing tapestry node %v, reason: %v",
-				address,
-				err,
+				"Error joining Tapestry node with id %v; Unable to find node %v in peerConns",
+				connectTo,
+				connectTo,
 			)
 		}
-		err = tapestry.Join(node)
+
+		err = tn.Join(MakeID(connectTo))
 		if err != nil {
+			tn.log.Printf(err.Error())
 			return nil, err
 		}
 	}
 
-	return tapestry, nil
-}
-
-// Start a node with the specified ID.
-func Start(id ID, port int, connectTo string) (tapestry *Node, err error) {
-	// Create the RPC server
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", port))
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the hostname of this machine
-	name, err := os.Hostname()
-	if err != nil {
-		return nil, fmt.Errorf(
-			"Unable to get hostname of local machine to start Tapestry node. Reason: %v",
-			err,
-		)
-	}
-
-	// Get the port we are bound to
-	_, actualport, err := net.SplitHostPort(lis.Addr().String()) //fmt.Sprintf("%v:%v", name, port)
-	if err != nil {
-		return nil, err
-	}
-
-	// The actual address of this node. NOTE: If gRPC calls fail with deadline exceeded errors, this could be that it
-	// is unable to resolve the computer's hostname to the local IP address. Try uncommenting the below line if this
-	// happens to you (please do not check this change into your Git repo).
-	// name = "127.0.0.1"
-	address := fmt.Sprintf("%s:%s", name, actualport)
-
-	// Create the local node
-	tapestry = newTapestryNode(RemoteNode{ID: id, Address: address})
-	fmt.Printf("Created tapestry node %v\n", tapestry)
-	Trace.Printf("Created tapestry node")
-
-	pb.RegisterTapestryRPCServer(tapestry.server, tapestry)
-	fmt.Printf("Registered RPC Server\n")
-	go tapestry.server.Serve(lis)
-
-	// If specified, connect to the provided address
-	if connectTo != "" {
-		// Get the node we're joining
-		node, err := SayHelloRPC(connectTo, tapestry.Node)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"Error joining existing tapestry node %v, reason: %v",
-				address,
-				err,
-			)
-		}
-		err = tapestry.Join(node)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return tapestry, nil
+	return tn, nil
 }
 
 // Join is invoked when starting the local node, if we are connecting to an existing Tapestry.
@@ -193,101 +112,181 @@ func Start(id ID, port int, connectTo string) (tapestry *Node, err error) {
 // - Find the root for our node's ID
 // - Call AddNode on our root to initiate the multicast and receive our initial neighbor set. Add them to our table.
 // - Iteratively get backpointers from the neighbor set for all levels in range [0, SharedPrefixLength]
-// - 	and populate routing table
-func (local *Node) Join(otherNode RemoteNode) (err error) {
-	Debug.Println("Joining", otherNode)
+// and populate routing table
+func (local *TapestryNode) Join(remoteNodeId ID) error {
+	local.log.Println("Joining tapestry node", remoteNodeId)
 
 	// Route to our root
-	root, err := local.FindRootOnRemoteNode(otherNode, local.Node.ID)
+	rootIdPtr, err := local.FindRootOnRemoteNode(remoteNodeId, local.Id)
 	if err != nil {
-		return fmt.Errorf("Error joining existing tapestry node %v, reason: %v", otherNode, err)
+		return fmt.Errorf("Error joining existing tapestry node %v, reason: %v", remoteNodeId, err)
 	}
+	rootId := *rootIdPtr
+
 	// Add ourselves to our root by invoking AddNode on the remote node
-	neighbors, err := root.AddNodeRPC(local.Node)
+	nodeMsg := &pb.NodeMsg{
+		Id: local.Id.String(),
+	}
+
+	conn := local.Node.PeerConns[local.RetrieveID(rootId)]
+	rootNode := pb.NewTapestryRPCClient(conn)
+	resp, err := rootNode.AddNode(context.Background(), nodeMsg)
 	if err != nil {
-		return fmt.Errorf("Error adding ourselves to root node %v, reason: %v", root, err)
+		return fmt.Errorf("Error adding ourselves to root node %v, reason: %v", rootId, err)
 	}
 
 	// Add the neighbors to our local routing table.
-	for _, n := range neighbors {
-		local.AddRoute(n)
+	neighborIds, err := stringSliceToIds(resp.Neighbors)
+	if err != nil {
+		return fmt.Errorf("Error parsing neighbor IDs, reason: %v", err)
+	}
+
+	for _, neighborId := range neighborIds {
+		local.AddRoute(neighborId)
 	}
 
 	// TODO(students): [Tapestry] Implement me!
-
-	return nil
+	return errors.New("Join has not been implemented yet!")
 }
 
 // AddNode adds node to the tapestry
 //
 // - Begin the acknowledged multicast
 // - Return the neighborset from the multicast
-func (local *Node) AddNode(node RemoteNode) (neighborset []RemoteNode, err error) {
-	return local.AddNodeMulticast(node, SharedPrefixLength(node.ID, local.Node.ID))
+func (local *TapestryNode) AddNode(
+	ctx context.Context,
+	nodeMsg *pb.NodeMsg,
+) (*pb.Neighbors, error) {
+	nodeId, err := ParseID(nodeMsg.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	multicastRequest := &pb.MulticastRequest{
+		NewNode: nodeMsg.Id,
+		Level:   int32(SharedPrefixLength(nodeId, local.Id)),
+	}
+	return local.AddNodeMulticast(context.Background(), multicastRequest)
 }
 
 // AddNodeMulticast sends newNode to need-to-know nodes participating in the multicast.
 //   - Perform multicast to need-to-know nodes
 //   - Add the route for the new node (use `local.addRoute`)
-//   - Transfer of appropriate replica info to the new node (use `local.locationsByKey.GetTransferRegistrations`)
+//   - Transfer of appropriate router info to the new node (use `local.locationsByKey.GetTransferRegistrations`)
 //     If error, rollback the location map (add back unsuccessfully transferred objects)
 //
 // - Propagate the multicast to the specified row in our routing table and await multicast responses
 // - Return the merged neighbor set
 //
 // - note: `local.table.GetLevel` does not return the local node so you must manually add this to the neighbors set
-func (local *Node) AddNodeMulticast(
-	newNode RemoteNode,
-	level int,
-) (neighbors []RemoteNode, err error) {
-	Debug.Printf("Add node multicast %v at level %v\n", newNode, level)
+func (local *TapestryNode) AddNodeMulticast(
+	ctx context.Context,
+	multicastRequest *pb.MulticastRequest,
+) (*pb.Neighbors, error) {
+	newNodeId, err := ParseID(multicastRequest.NewNode)
+	if err != nil {
+		return nil, err
+	}
+	level := int(multicastRequest.Level)
+
+	local.log.Printf("Add node multicast %v at level %v\n", newNodeId, level)
+
 	// TODO(students): [Tapestry] Implement me!
-	return
+	return nil, errors.New("AddNodeMulticast has not been implemented yet!")
 }
 
 // AddBackpointer adds the from node to our backpointers, and possibly add the node to our
 // routing table, if appropriate
-func (local *Node) AddBackpointer(from RemoteNode) (err error) {
-	if local.Backpointers.Add(from) {
-		Debug.Printf("Added backpointer %v\n", from)
+func (local *TapestryNode) AddBackpointer(
+	ctx context.Context,
+	nodeMsg *pb.NodeMsg,
+) (*pb.Ok, error) {
+	id, err := ParseID(nodeMsg.Id)
+	if err != nil {
+		return nil, err
 	}
-	local.AddRoute(from)
-	return
+
+	if local.Backpointers.Add(id) {
+		local.log.Printf("Added backpointer %v\n", id)
+	}
+	local.AddRoute(id)
+
+	ok := &pb.Ok{
+		Ok: true,
+	}
+	return ok, nil
 }
 
 // RemoveBackpointer removes the from node from our backpointers
-func (local *Node) RemoveBackpointer(from RemoteNode) (err error) {
-	if local.Backpointers.Remove(from) {
-		Debug.Printf("Removed backpointer %v\n", from)
+func (local *TapestryNode) RemoveBackpointer(
+	ctx context.Context,
+	nodeMsg *pb.NodeMsg,
+) (*pb.Ok, error) {
+	id, err := ParseID(nodeMsg.Id)
+	if err != nil {
+		return nil, err
 	}
-	return
+
+	if local.Backpointers.Remove(id) {
+		local.log.Printf("Removed backpointer %v\n", id)
+	}
+
+	ok := &pb.Ok{
+		Ok: true,
+	}
+	return ok, nil
 }
 
-// GetBackpointers gets all backpointers at the level specified, and possibly add the node to our
+// GetBackpointers gets all backpointers at the level specified, and possibly adds the node to our
 // routing table, if appropriate
-func (local *Node) GetBackpointers(
-	from RemoteNode,
-	level int,
-) (backpointers []RemoteNode, err error) {
-	Debug.Printf("Sending level %v backpointers to %v\n", level, from)
-	backpointers = local.Backpointers.Get(level)
-	local.AddRoute(from)
-	return
+func (local *TapestryNode) GetBackpointers(
+	ctx context.Context,
+	backpointerReq *pb.BackpointerRequest,
+) (*pb.Neighbors, error) {
+	id, err := ParseID(backpointerReq.From)
+	if err != nil {
+		return nil, err
+	}
+	level := int(backpointerReq.Level)
+
+	local.log.Printf("Sending level %v backpointers to %v\n", level, id)
+	backpointers := local.Backpointers.Get(level)
+	err = local.AddRoute(id)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &pb.Neighbors{
+		Neighbors: idsToStringSlice(backpointers),
+	}
+	return resp, err
 }
 
 // RemoveBadNodes discards all the provided nodes
 // - Remove each node from our routing table
 // - Remove each node from our set of backpointers
-func (local *Node) RemoveBadNodes(badnodes []RemoteNode) (err error) {
+func (local *TapestryNode) RemoveBadNodes(
+	ctx context.Context,
+	neighbors *pb.Neighbors,
+) (*pb.Ok, error) {
+	badnodes, err := stringSliceToIds(neighbors.Neighbors)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, badnode := range badnodes {
 		if local.Table.Remove(badnode) {
-			Debug.Printf("Removed bad node %v\n", badnode)
+			local.log.Printf("Removed bad node %v\n", badnode)
 		}
 		if local.Backpointers.Remove(badnode) {
-			Debug.Printf("Removed bad node backpointer %v\n", badnode)
+			local.log.Printf("Removed bad node backpointer %v\n", badnode)
 		}
 	}
-	return
+
+	resp := &pb.Ok{
+		Ok: true,
+	}
+	return resp, nil
 }
 
 // Utility function that adds a node to our routing table.
@@ -295,7 +294,7 @@ func (local *Node) RemoveBadNodes(badnodes []RemoteNode) (err error) {
 // - Adds the provided node to the routing table, if appropriate.
 // - If the node was added to the routing table, notify the node of a backpointer
 // - If an old node was removed from the routing table, notify the old node of a removed backpointer
-func (local *Node) AddRoute(node RemoteNode) (err error) {
+func (local *TapestryNode) AddRoute(remoteNodeId ID) error {
 	// TODO(students): [Tapestry] Implement me!
-	return
+	return errors.New("AddRoute has not been implemented yet!")
 }
