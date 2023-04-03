@@ -102,6 +102,14 @@ func Hash(key string) (id ID) {
 // SharedPrefixLength returns the length of the prefix that is shared by the two IDs.
 func SharedPrefixLength(a ID, b ID) (i int) {
 	// TODO(students): [Tapestry] Implement me!
+	i = 0
+	for idx, _ := range a {
+		if a[idx] == b[idx] {
+			i++
+		} else {
+			break
+		}
+	}
 	return
 }
 
@@ -123,6 +131,15 @@ func SharedPrefixLength(a ID, b ID) (i int) {
 // Returns false if currentId is the better choice or if newId == currentId.
 func (id ID) IsNewRoute(newId ID, currentId ID) bool {
 	// TODO(students): [Tapestry] Implement me!
+	for idx, _ := range id {
+		if newId[idx] != currentId[idx] {
+			if (newId[idx]-id[idx])%BASE < (currentId[idx]-id[idx])%BASE {
+				return true
+			} else {
+				return false
+			}
+		}
+	}
 	return false
 }
 
@@ -142,6 +159,14 @@ func (id ID) IsNewRoute(newId ID, currentId ID) bool {
 // Return false if b is closer than a, or if a == b.
 func (id ID) Closer(a ID, b ID) bool {
 	// TODO(students): [Tapestry] Implement me!
+
+	diffA := big.NewInt(0)
+	diffB := big.NewInt(0)
+	diffA.Sub(id.Big(), a.Big())
+	diffB.Sub(id.Big(), b.Big())
+	if diffA.Abs(diffA).Cmp(diffB.Abs(diffB)) == -1 {
+		return true
+	}
 	return false
 }
 
