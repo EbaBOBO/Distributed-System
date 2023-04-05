@@ -8,6 +8,7 @@
 package tapestry
 
 import (
+	"sort"
 	"sync"
 )
 
@@ -57,7 +58,35 @@ func (t *RoutingTable) Add(remoteNodeId ID) (added bool, previous *ID) {
 	defer t.mutex.Unlock()
 
 	// TODO(students): [Tapestry] Implement me!
-	return
+	spl := SharedPrefixLength(t.localId, remoteNodeId)
+	slotLen := len(t.Rows[spl][remoteNodeId[spl]])
+	// Node already exist
+	for _, it := range t.Rows[spl][remoteNodeId[spl]] {
+		if it.String() == remoteNodeId.String() {
+			return false, nil
+		}
+	}
+	// Empty slot, direct add
+	if slotLen == 0 {
+		t.Rows[spl][remoteNodeId[spl]] = append(t.Rows[spl][remoteNodeId[spl]], remoteNodeId)
+		return true, nil
+	}
+	t.Rows[spl][remoteNodeId[spl]] = append(t.Rows[spl][remoteNodeId[spl]], remoteNodeId)
+	sort.Slice(t.Rows[spl][remoteNodeId[spl]], func(i, j int) bool {
+		return t.localId.Closer(t.Rows[spl][remoteNodeId[spl]][i], t.Rows[spl][remoteNodeId[spl]][j])
+	})
+	// Smaller than SLOTSIZE
+	if len(t.Rows[spl][remoteNodeId[spl]]) <= SLOTSIZE {
+		return true, nil
+	}
+	// remoteNodeId is less closer than node in slot
+	if t.Rows[spl][remoteNodeId[spl]][len(t.Rows[spl][remoteNodeId[spl]])-1].String() == remoteNodeId.String() {
+		return false, nil
+	}
+	// Need to overwrite
+	previous = &t.Rows[spl][remoteNodeId[spl]][len(t.Rows[spl][remoteNodeId[spl]])-1]
+	t.Rows[spl][remoteNodeId[spl]] = t.Rows[spl][remoteNodeId[spl]][0:SLOTSIZE]
+	return true, previous
 }
 
 // Remove removes the specified node from the routing table, if it exists.
@@ -69,7 +98,28 @@ func (t *RoutingTable) Remove(remoteNodeId ID) (wasRemoved bool) {
 	defer t.mutex.Unlock()
 
 	// TODO(students): [Tapestry] Implement me!
-	return
+
+	// Node try to remove itself
+	if remoteNodeId.String() == t.localId.String() {
+		return false
+	}
+	spl := SharedPrefixLength(t.localId, remoteNodeId)
+	slotLen := len(t.Rows[spl][remoteNodeId[spl]])
+	idx := 0
+	for ; idx < slotLen; idx++ {
+		if t.Rows[spl][remoteNodeId[spl]][idx].String() == remoteNodeId.String() {
+			break
+		}
+	}
+	// Node does not exist
+	if idx >= slotLen {
+		return false
+	}
+	tmp := make([]ID, slotLen)
+	copy(tmp, t.Rows[spl][remoteNodeId[spl]])
+	t.Rows[spl][remoteNodeId[spl]] = t.Rows[spl][remoteNodeId[spl]][0:idx]
+	t.Rows[spl][remoteNodeId[spl]] = append(t.Rows[spl][remoteNodeId[spl]], tmp[idx+1:slotLen]...)
+	return true
 }
 
 // GetLevel gets ALL nodes on the specified level of the routing table, EXCLUDING the local node.
@@ -79,6 +129,13 @@ func (t *RoutingTable) GetLevel(level int) (nodeIds []ID) {
 	defer t.mutex.Unlock()
 
 	// TODO(students): [Tapestry] Implement me!
+	for _, slt := range t.Rows[level] {
+		for _, nd := range slt {
+			if nd.String() != t.localId.String() {
+				nodeIds = append(nodeIds, nd)
+			}
+		}
+	}
 	return
 }
 
@@ -89,5 +146,21 @@ func (t *RoutingTable) FindNextHop(id ID, level int32) ID {
 	defer t.mutex.Unlock()
 
 	// TODO(students): [Tapestry] Implement me!
+	idIdx := -1
+	for idx, slt := range t.Rows[level] {
+		if len(slt) == 0 {
+			continue
+		}
+		if idIdx == -1 {
+			idIdx = idx
+			continue
+		}
+		if id.Closer(slt[0], t.Rows[level][idIdx][0]) {
+			idIdx = idx
+		}
+	}
+	if idIdx != -1 {
+		return t.Rows[level][idIdx][0]
+	}
 	return ID{}
 }
