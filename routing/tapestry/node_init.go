@@ -10,12 +10,14 @@ package tapestry
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"modist/orchestrator/node"
 	pb "modist/proto"
+	"sort"
 	"time"
+
+	"golang.org/x/exp/slices"
 )
 
 // BASE is the base of a digit of an ID.  By default, a digit is base-16.
@@ -146,7 +148,32 @@ func (local *TapestryNode) Join(remoteNodeId ID) error {
 	}
 
 	// TODO(students): [Tapestry] Implement me!
-	return errors.New("Join has not been implemented yet!")
+	for level := SharedPrefixLength(local.Id, rootId); level >= 0; level-- {
+		tmp := neighborIds
+		for _, n := range neighborIds {
+			conn := local.Node.PeerConns[local.RetrieveID(n)]
+			remoteNode := pb.NewTapestryRPCClient(conn)
+			res, _ := remoteNode.GetBackpointers(context.Background(), &pb.BackpointerRequest{From: local.String(), Level: int32(level)})
+			for _, it := range res.Neighbors {
+				id, _ := ParseID(it)
+				if !slices.Contains(tmp, id) {
+					tmp = append(tmp, id)
+				}
+			}
+		}
+		for _, n := range tmp {
+			local.AddRoute(n)
+		}
+		sort.Slice(tmp, func(i, j int) bool {
+			return local.Id.Closer(tmp[i], tmp[j])
+		})
+
+		if len(tmp) > K {
+			tmp = tmp[:K]
+		}
+		neighborIds = tmp
+	}
+	return nil
 }
 
 // AddNode adds node to the tapestry
@@ -192,7 +219,51 @@ func (local *TapestryNode) AddNodeMulticast(
 	local.log.Printf("Add node multicast %v at level %v\n", newNodeId, level)
 
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("AddNodeMulticast has not been implemented yet!")
+	var result []string
+	if level < DIGITS {
+		targets := local.Table.GetLevel(level)
+		targets = append(targets, local.Id)
+		for _, it := range targets {
+			conn := local.Node.PeerConns[local.RetrieveID(it)]
+			targerNode := pb.NewTapestryRPCClient(conn)
+			multicastRequest.Level += 1
+			res, _ := targerNode.AddNodeMulticast(context.Background(), multicastRequest)
+			resNeighbors := res.Neighbors
+			for _, n := range resNeighbors {
+				if !slices.Contains(result, n) {
+					result = append(result, n)
+				}
+			}
+		}
+		for _, n := range targets {
+			if !slices.Contains(result, n.String()) {
+				result = append(result, n.String())
+			}
+		}
+	}
+	local.AddRoute(newNodeId)
+	go func() {
+		data := local.LocationsByKey.GetTransferRegistrations(local.Id, newNodeId)
+		dataToTransfer := make(map[string]*pb.Neighbors)
+		for k, v := range data {
+			var tmp []string
+			for _, it := range v {
+				tmp = append(tmp, it.String())
+			}
+			msg := pb.Neighbors{Neighbors: tmp}
+			dataToTransfer[k] = &msg
+		}
+		conn := local.Node.PeerConns[local.RetrieveID(newNodeId)]
+		newNode := pb.NewTapestryRPCClient(conn)
+		_, err := newNode.Transfer(context.Background(), &pb.TransferData{From: local.String(), Data: dataToTransfer})
+		if err != nil {
+			local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: []string{newNodeId.String()}})
+			local.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: newNodeId.String()})
+			local.LocationsByKey.RegisterAll(data, TIMEOUT)
+		}
+
+	}()
+	return &pb.Neighbors{Neighbors: result}, nil
 }
 
 // AddBackpointer adds the from node to our backpointers, and possibly add the node to our
@@ -296,5 +367,23 @@ func (local *TapestryNode) RemoveBadNodes(
 // - If an old node was removed from the routing table, notify the old node of a removed backpointer
 func (local *TapestryNode) AddRoute(remoteNodeId ID) error {
 	// TODO(students): [Tapestry] Implement me!
-	return errors.New("AddRoute has not been implemented yet!")
+	added, previous := local.Table.Add(remoteNodeId)
+	if added {
+		conn := local.Node.PeerConns[local.RetrieveID(remoteNodeId)]
+		remoteNode := pb.NewTapestryRPCClient(conn)
+		_, err := remoteNode.AddBackpointer(context.Background(), &pb.NodeMsg{Id: remoteNodeId.String()})
+		if err != nil {
+			return err
+		}
+
+	}
+	if previous != nil {
+		conn := local.Node.PeerConns[local.RetrieveID(*previous)]
+		previousNode := pb.NewTapestryRPCClient(conn)
+		_, err := previousNode.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: previous.String()})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

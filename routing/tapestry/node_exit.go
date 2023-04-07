@@ -25,6 +25,14 @@ func (local *TapestryNode) Kill() {
 // - If possible, give each backpointer a suitable alternative node from our routing table
 func (local *TapestryNode) Leave() error {
 	// TODO(students): [Tapestry] Implement me!
+	replace := local.Table.FindNextHop(local.Id, 0)
+	for level := 0; level < DIGITS; level++ {
+		for _, nd := range local.Backpointers.Get(level) {
+			conn := local.Node.PeerConns[local.RetrieveID(nd)]
+			client := pb.NewTapestryRPCClient(conn)
+			client.NotifyLeave(context.Background(), &pb.LeaveNotification{From: local.String(), Replacement: replace.String()})
+		}
+	}
 	local.blobstore.DeleteAll()
 	go local.Node.GrpcServer.GracefulStop()
 	return errors.New("Leave has not been implemented yet!")
@@ -51,5 +59,10 @@ func (local *TapestryNode) NotifyLeave(
 	)
 
 	// TODO(students): [Tapestry] Implement me!
+	local.Table.Remove(from)
+	local.Backpointers.Remove(from)
+	if replacement != "" {
+		local.AddRoute(MakeIDFromHexString(replacement))
+	}
 	return nil, errors.New("NotifyLeave has not been implemented yet!")
 }

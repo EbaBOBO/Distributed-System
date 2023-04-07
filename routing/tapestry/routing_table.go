@@ -59,6 +59,9 @@ func (t *RoutingTable) Add(remoteNodeId ID) (added bool, previous *ID) {
 
 	// TODO(students): [Tapestry] Implement me!
 	spl := SharedPrefixLength(t.localId, remoteNodeId)
+	if spl == DIGITS {
+		return false, nil
+	}
 	slotLen := len(t.Rows[spl][remoteNodeId[spl]])
 	// Node already exist
 	for _, it := range t.Rows[spl][remoteNodeId[spl]] {
