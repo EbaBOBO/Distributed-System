@@ -149,6 +149,9 @@ func (t *RoutingTable) FindNextHop(id ID, level int32) ID {
 	defer t.mutex.Unlock()
 
 	// TODO(students): [Tapestry] Implement me!
+	if level == DIGITS-1 {
+		return t.localId
+	}
 	idIdx := -1
 	for idx, slt := range t.Rows[level] {
 		if len(slt) == 0 {
