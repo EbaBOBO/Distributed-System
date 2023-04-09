@@ -83,59 +83,48 @@ func (local *TapestryNode) Remove(key string) bool {
 //   - Keep trying to republish regardless of how the last attempt went
 func (local *TapestryNode) Publish(key string) (chan bool, error) {
 	// TODO(students): [Tapestry] Implement me!
-	publishChan := make(chan bool)
-	var publishErr error
-	publishErr = nil
 
-	////////// initial publish function
-	publishWorkFlow := func() {
-		//   - Find the root node for the key
-		for i := 0; i < RETRIES; i++ {
-			rootMsg, err := local.FindRoot(context.Background(), &pb.IdMsg{Id: Hash(key).String(), Level: 0})
-			if err != nil {
-				publishErr = errors.New("Publish FindRoot failed")
-				continue
-			}
-			rootId, err := ParseID(rootMsg.Next)
-			if err != nil {
-				publishErr = errors.New("Publish ParseID failed")
-				continue
-			}
-
-			//   - Register the local node on the root
-			// if anything failed, retry; until RETRIES has been reached.
-			conn := local.Node.PeerConns[local.RetrieveID(rootId)]
-			rootNode := pb.NewTapestryRPCClient(conn)
-			isRegister, err := rootNode.Register(context.Background(), &pb.Registration{FromNode: local.Id.String(), Key: key})
-			if err != nil || !isRegister.Ok {
-				publishErr = errors.New("Publish Register failed")
-				continue
-			}
-
-			publishErr = nil
-			return
-		}
-
+	cancel := make(chan bool)
+	err := local.publishHelper(key)
+	if err != nil {
+		return cancel, nil
 	}
 
-	// first publish
-	publishWorkFlow()
-	if publishErr != nil {
-		return publishChan, publishErr
-	}
-
-	// - Start periodically publishing the key. At each publishing:
-	timer := time.NewTicker(REPUBLISH)
 	go func() {
-		select {
-		case <-timer.C:
-			publishWorkFlow()
-		case <-publishChan:
-			return
+		t := time.NewTicker(REPUBLISH)
+		for {
+			select {
+			case <-cancel:
+				return
+			case <-t.C:
+				err := local.publishHelper(key)
+				if err != nil {
+					local.log.Print(err)
+				}
+			}
 		}
 	}()
+	return cancel, nil
+}
 
-	return publishChan, publishErr
+func (local *TapestryNode) publishHelper(key string) (err error) {
+
+	for i := 0; i < RETRIES; i++ {
+		rootId, err := local.FindRootOnRemoteNode(local.Id, Hash((key)))
+		if err != nil {
+			local.log.Print(err)
+		}
+		conn := local.Node.PeerConns[local.RetrieveID(*rootId)]
+		rootNode := pb.NewTapestryRPCClient(conn)
+		ok, err := rootNode.Register(context.Background(), &pb.Registration{FromNode: local.Id.String(), Key: key})
+		if !ok.Ok || err != nil {
+			local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: []string{rootId.String()}})
+			local.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: rootId.String()})
+		} else {
+			return nil
+		}
+	}
+	return errors.New("publish tries too many times")
 }
 
 // Lookup look up the Tapestry nodes that are storing the blob for the specified key.
@@ -184,23 +173,26 @@ func (local *TapestryNode) FindRoot(ctx context.Context, idMsg *pb.IdMsg) (*pb.R
 		return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil
 	}
 	var toRemove []string
-s1:
-	nextHop := local.Table.FindNextHop(id, level)
-	if nextHop.String() == local.String() {
-		return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil
-	}
-	conn := local.Node.PeerConns[local.RetrieveID(nextHop)]
-	nextNode := pb.NewTapestryRPCClient(conn)
-	rootMsg, err := nextNode.FindRoot(ctx, &pb.IdMsg{Id: id.String(), Level: level + 1})
-	if err != nil {
-		local.log.Print(err)
-		toRemove = append(toRemove, nextHop.String())
-		var ok *pb.Ok
-		ok, err = local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: toRemove})
-		if !ok.Ok || err != nil {
-			return &pb.RootMsg{}, nil
+	var rootMsg *pb.RootMsg
+	for true {
+		nextHop := local.Table.FindNextHop(id, level)
+		if nextHop.String() == local.String() {
+			return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil
 		}
-		goto s1
+		conn := local.Node.PeerConns[local.RetrieveID(nextHop)]
+		nextNode := pb.NewTapestryRPCClient(conn)
+		rootMsg, err = nextNode.FindRoot(ctx, &pb.IdMsg{Id: id.String(), Level: level + 1})
+		if err != nil {
+			local.log.Print(err)
+			toRemove = append(toRemove, nextHop.String())
+			var ok *pb.Ok
+			ok, err = local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: toRemove})
+			if !ok.Ok || err != nil {
+				return &pb.RootMsg{}, nil
+			}
+		} else {
+			break
+		}
 	}
 	local.RemoveBadNodes(ctx, &pb.Neighbors{Neighbors: toRemove})
 	return rootMsg, nil

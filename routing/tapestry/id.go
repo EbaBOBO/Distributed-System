@@ -103,7 +103,7 @@ func Hash(key string) (id ID) {
 func SharedPrefixLength(a ID, b ID) (i int) {
 	// TODO(students): [Tapestry] Implement me!
 	i = 0
-	for idx, _ := range a {
+	for idx := range a {
 		if a[idx] == b[idx] {
 			i++
 		} else {
