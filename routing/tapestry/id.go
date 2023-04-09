@@ -164,10 +164,7 @@ func (id ID) Closer(a ID, b ID) bool {
 	diffB := big.NewInt(0)
 	diffA.Sub(id.Big(), a.Big())
 	diffB.Sub(id.Big(), b.Big())
-	if diffA.Abs(diffA).Cmp(diffB.Abs(diffB)) == -1 {
-		return true
-	}
-	return false
+	return diffA.Abs(diffA).Cmp(diffB.Abs(diffB)) == -1
 }
 
 // Helper function: convert an ID to a big int.

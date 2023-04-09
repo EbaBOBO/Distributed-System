@@ -180,19 +180,26 @@ func (local *TapestryNode) FindRoot(ctx context.Context, idMsg *pb.IdMsg) (*pb.R
 	level := idMsg.Level
 
 	// TODO(students): [Tapestry] Implement me!
+	if level >= DIGITS {
+		return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil
+	}
 	var toRemove []string
 s1:
 	nextHop := local.Table.FindNextHop(id, level)
 	if nextHop.String() == local.String() {
-		return &pb.RootMsg{Next: nextHop.String(), ToRemove: toRemove}, nil
+		return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil
 	}
-	idMsg.Level = level + 1
 	conn := local.Node.PeerConns[local.RetrieveID(nextHop)]
 	nextNode := pb.NewTapestryRPCClient(conn)
-	rootMsg, err := nextNode.FindRoot(ctx, idMsg)
+	rootMsg, err := nextNode.FindRoot(ctx, &pb.IdMsg{Id: id.String(), Level: level + 1})
 	if err != nil {
-		toRemove = append(toRemove, rootMsg.ToRemove...)
-		local.RemoveBadNodes(ctx, &pb.Neighbors{Neighbors: toRemove})
+		local.log.Print(err)
+		toRemove = append(toRemove, nextHop.String())
+		var ok *pb.Ok
+		ok, err = local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: toRemove})
+		if !ok.Ok || err != nil {
+			return &pb.RootMsg{}, nil
+		}
 		goto s1
 	}
 	local.RemoveBadNodes(ctx, &pb.Neighbors{Neighbors: toRemove})

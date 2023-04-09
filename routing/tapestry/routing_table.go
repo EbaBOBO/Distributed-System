@@ -152,21 +152,16 @@ func (t *RoutingTable) FindNextHop(id ID, level int32) ID {
 	if level == DIGITS-1 {
 		return t.localId
 	}
-	idIdx := -1
-	for idx, slt := range t.Rows[level] {
-		if len(slt) == 0 {
-			continue
+	col := id[level]
+	for level < DIGITS-1 {
+		for len(t.Rows[level][col]) == 0 {
+			col = (col + 1) % BASE
 		}
-		if idIdx == -1 {
-			idIdx = idx
-			continue
+		if t.Rows[level][col][0].String() != t.localId.String() {
+			return t.Rows[level][col][0]
 		}
-		if id.Closer(slt[0], t.Rows[level][idIdx][0]) {
-			idIdx = idx
-		}
+		level += 1
+		col = id[level]
 	}
-	if idIdx != -1 {
-		return t.Rows[level][idIdx][0]
-	}
-	return ID{}
+	return t.localId
 }
