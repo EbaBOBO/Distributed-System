@@ -131,7 +131,7 @@ func SharedPrefixLength(a ID, b ID) (i int) {
 // Returns false if currentId is the better choice or if newId == currentId.
 func (id ID) IsNewRoute(newId ID, currentId ID) bool {
 	// TODO(students): [Tapestry] Implement me!
-	for idx, _ := range id {
+	for idx := range id {
 		if newId[idx] != currentId[idx] {
 			if (newId[idx]-id[idx])%BASE < (currentId[idx]-id[idx])%BASE {
 				return true

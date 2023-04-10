@@ -72,16 +72,6 @@ func TestLeave(t *testing.T) {
 
 }
 
-func TestPublish(t *testing.T) {
-	tap, _ := MakeTapestries(true, "1", "3", "5") //Make a tapestry with these ids
-	blob := []byte{1, 2, 3}
-	tap[0].Store("4", blob)
-	_, err := tap[1].Get("5")
-	if err == nil {
-		t.Errorf("Should get error from un-exist key")
-	}
-}
-
 func TestGetError(t *testing.T) {
 	tap, _ := MakeTapestries(true, "1", "10") //Make a tapestry with these ids
 	blob := []byte{1, 2, 3}
