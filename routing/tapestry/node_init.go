@@ -379,7 +379,7 @@ func (local *TapestryNode) AddRoute(remoteNodeId ID) error {
 		go func() {
 			conn := local.Node.PeerConns[local.RetrieveID(*previous)]
 			previousNode := pb.NewTapestryRPCClient(conn)
-			previousNode.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: previous.String()})
+			previousNode.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: local.String()})
 		}()
 	}
 	return nil
