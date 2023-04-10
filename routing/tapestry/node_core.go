@@ -174,7 +174,7 @@ func (local *TapestryNode) FindRoot(ctx context.Context, idMsg *pb.IdMsg) (*pb.R
 	}
 	var toRemove []string
 	var rootMsg *pb.RootMsg
-	for true {
+	for {
 		nextHop := local.Table.FindNextHop(id, level)
 		if nextHop.String() == local.String() {
 			return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil

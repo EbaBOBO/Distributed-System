@@ -370,6 +370,7 @@ func (local *TapestryNode) RemoveBadNodes(
 // - If an old node was removed from the routing table, notify the old node of a removed backpointer
 func (local *TapestryNode) AddRoute(remoteNodeId ID) error {
 	// TODO(students): [Tapestry] Implement me!
+	local.log.Printf("AddRoute called, local: %v, remote: %v", local.String(), remoteNodeId.String())
 	added, previous := local.Table.Add(remoteNodeId)
 	go func() {
 		if added {

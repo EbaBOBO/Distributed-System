@@ -9,8 +9,8 @@ package tapestry
 
 import (
 	"context"
-	"errors"
 	pb "modist/proto"
+	"sync"
 )
 
 // Kill this node without gracefully leaving the tapestry.
@@ -25,17 +25,35 @@ func (local *TapestryNode) Kill() {
 // - If possible, give each backpointer a suitable alternative node from our routing table
 func (local *TapestryNode) Leave() error {
 	// TODO(students): [Tapestry] Implement me!
-	replace := local.Table.FindNextHop(local.Id, 0)
+	var replace ID
+	for i := DIGITS - 1; i >= 0; i-- {
+		nodes := local.Table.GetLevel(i)
+		if len(nodes) > 0 {
+			replace = nodes[0]
+			for j := 1; j < len(nodes); j++ {
+				if local.Id.IsNewRoute(nodes[j], replace) {
+					replace = nodes[j]
+				}
+			}
+		}
+	}
+	local.log.Printf("Leave called, local: %v, replace node: %v", local.String(), replace.String())
+	var wg sync.WaitGroup
 	for level := 0; level < DIGITS; level++ {
 		for _, nd := range local.Backpointers.Get(level) {
 			conn := local.Node.PeerConns[local.RetrieveID(nd)]
 			client := pb.NewTapestryRPCClient(conn)
-			client.NotifyLeave(context.Background(), &pb.LeaveNotification{From: local.String(), Replacement: replace.String()})
+			wg.Add(1)
+			go func() {
+				client.NotifyLeave(context.Background(), &pb.LeaveNotification{From: local.String(), Replacement: replace.String()})
+				wg.Done()
+			}()
 		}
 	}
+	wg.Wait()
 	local.blobstore.DeleteAll()
 	go local.Node.GrpcServer.GracefulStop()
-	return errors.New("Leave has not been implemented yet!")
+	return nil
 }
 
 // NotifyLeave occurs when another node is informing us of a graceful exit.
@@ -61,8 +79,10 @@ func (local *TapestryNode) NotifyLeave(
 	// TODO(students): [Tapestry] Implement me!
 	local.Table.Remove(from)
 	local.Backpointers.Remove(from)
+
 	if replacement != "" {
-		local.AddRoute(MakeIDFromHexString(replacement))
+		replaceId, _ := ParseID(replacement)
+		local.AddRoute(replaceId)
 	}
-	return nil, errors.New("NotifyLeave has not been implemented yet!")
+	return nil, nil
 }
