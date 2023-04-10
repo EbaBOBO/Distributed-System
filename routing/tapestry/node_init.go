@@ -15,6 +15,7 @@ import (
 	"modist/orchestrator/node"
 	pb "modist/proto"
 	"sort"
+	"sync"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -150,7 +151,9 @@ func (local *TapestryNode) Join(remoteNodeId ID) error {
 	// TODO(students): [Tapestry] Implement me!
 	for level := SharedPrefixLength(local.Id, rootId); level >= 0; level-- {
 		tmp := neighborIds
+		var wg sync.WaitGroup
 		for _, n := range neighborIds {
+			wg.Add(1)
 			go func() {
 				conn := local.Node.PeerConns[local.RetrieveID(n)]
 				remoteNode := pb.NewTapestryRPCClient(conn)
@@ -161,8 +164,10 @@ func (local *TapestryNode) Join(remoteNodeId ID) error {
 						tmp = append(tmp, id)
 					}
 				}
+				wg.Done()
 			}()
 		}
+		wg.Wait()
 		for _, n := range tmp {
 			local.AddRoute(n)
 		}
