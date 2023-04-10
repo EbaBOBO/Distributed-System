@@ -33,10 +33,8 @@ func (state NodeState) String() string {
 	return nodeStateMap[state]
 }
 
-// data stores the data associated with the commit in the log.
-type commit struct {
-	data [][]byte
-}
+// commit represents a single log entry
+type commit []byte
 
 // None is a placeholder Node ID used when there is no leader
 const None uint64 = 0
@@ -47,7 +45,6 @@ type RaftNode struct {
 
 	proposeC chan []byte    // Proposed messages (k, v)
 	commitC  chan<- *commit // Entries committed to log (k, v)
-	errorC   chan<- error   // Errors from raft session
 	stopC    chan struct{}  // Signals that client has closed proposal channel
 
 	// stable store (written to disk, use helper methods)
@@ -66,8 +63,8 @@ type RaftNode struct {
 	leaderMu   sync.Mutex
 
 	// channels to send / receive various RPC messages (used in state functions)
-	appendEntries chan AppendEntriesMsg
-	requestVote   chan RequestVoteMsg
+	appendEntriesC chan AppendEntriesMsg
+	requestVoteC   chan RequestVoteMsg
 
 	electionTimeout  time.Duration
 	heartbeatTimeout time.Duration
@@ -81,36 +78,41 @@ type RaftNode struct {
 
 // NewRaftNode constructs a new raft node and returns a committed log entry channel and
 // error channel. Proposals for log updates are sent over the provided proposal channel.
-// All log entries are replayed over commit channel, followed by a nil messsage
-// (to indicate the channel is current), then new log entries. To shutdown, close
-// proposeC and read errorC.
+// To shutdown, close proposeC.
 func NewRaftNode(
 	node *node.Node,
 	c *Config,
 	proposeC chan []byte,
-) (<-chan *commit, <-chan error) {
+) <-chan *commit {
 
 	commitC := make(chan *commit)
-	errorC := make(chan error)
 
 	// Start the raft node
-	StartRaftNode(node, c, proposeC, commitC, errorC)
-
-	return commitC, errorC
+	StartRaftNode(node, c, proposeC, commitC)
+	return commitC
 }
 
 // StartRaftNode returns a new RaftNode given a Node, a configuration,
-// and the necessary channels
+// and the necessary channels. All log entries are replayed over the commit channel
+// before new log entries are accepted.
 func StartRaftNode(
 	node *node.Node,
 	c *Config,
 	proposeC chan []byte,
 	commitC chan *commit,
-	errorC chan error,
 ) *RaftNode {
 
-	rn := SetupRaftNode(node, c, proposeC, commitC, errorC)
+	rn := SetupRaftNode(node, c, proposeC, commitC)
 	rn.InitStableStore()
+
+	// Replay any existing log entries over the commit channel
+	for i := uint64(0); i <= rn.LastLogIndex(); i++ {
+		data := commit(rn.GetLog(i).GetData())
+		if data != nil {
+			rn.log.Printf("replaying entry #%d", i)
+			commitC <- &data
+		}
+	}
 
 	go rn.Run(context.Background(), rn.doFollower)
 	return rn
@@ -123,14 +125,12 @@ func SetupRaftNode(
 	c *Config,
 	proposeC chan []byte,
 	commitC chan *commit,
-	errorC chan error,
 ) *RaftNode {
 
 	rn := &RaftNode{
 		node:             node,
 		proposeC:         proposeC,
 		commitC:          commitC,
-		errorC:           errorC,
 		stopC:            make(chan struct{}),
 		stableStore:      c.Storage,
 		commitIndex:      0,
@@ -138,8 +138,8 @@ func SetupRaftNode(
 		state:            FollowerState,
 		nextIndex:        make(map[uint64]uint64),
 		matchIndex:       make(map[uint64]uint64),
-		appendEntries:    make(chan AppendEntriesMsg),
-		requestVote:      make(chan RequestVoteMsg),
+		appendEntriesC:   make(chan AppendEntriesMsg),
+		requestVoteC:     make(chan RequestVoteMsg),
 		electionTimeout:  c.ElectionTimeout,
 		heartbeatTimeout: c.HeartbeatTimeout,
 		log:              node.Log,
@@ -172,7 +172,6 @@ func (rn *RaftNode) Stop() {
 	rn.log.Printf("shutting down node")
 
 	close(rn.commitC)
-	close(rn.errorC)
 
 	if state := rn.state; !(state == ExitState) {
 		rn.stopC <- struct{}{}
@@ -181,7 +180,6 @@ func (rn *RaftNode) Stop() {
 	rn.stableStore.Close()
 }
 
-var ErrProposalDropped = errors.New("raft proposal dropped")
 var ErrShutdown = errors.New("node has shutdown")
 
 // Propose is invoked on a leader node by a remote follower node to
@@ -210,11 +208,12 @@ func (rn *RaftNode) AppendEntries(
 	req *pb.AppendEntriesRequest,
 ) (*pb.AppendEntriesReply, error) {
 
+	// Uncomment below line to print out all AppendEntriesRequests
 	// rn.log.Printf("received AppendEntriesRequest from node %v", req.From)
 
 	// Ensures that goroutine is not blocking on sending msg to reply channel
 	reply := make(chan pb.AppendEntriesReply, 1)
-	rn.appendEntries <- AppendEntriesMsg{req, reply}
+	rn.appendEntriesC <- AppendEntriesMsg{req, reply}
 	select {
 	case <-ctx.Done():
 		return nil, ErrShutdown
@@ -236,10 +235,11 @@ func (rn *RaftNode) RequestVote(
 	req *pb.RequestVoteRequest,
 ) (*pb.RequestVoteReply, error) {
 
+	// Uncomment below line to print out all RequestVoteRequests
 	// rn.log.Printf("received RequestVoteRequest from node %v", req.From)
 
 	reply := make(chan pb.RequestVoteReply, 1)
-	rn.requestVote <- RequestVoteMsg{req, reply}
+	rn.requestVoteC <- RequestVoteMsg{req, reply}
 	select {
 	case <-ctx.Done():
 		return nil, ErrShutdown
