@@ -57,3 +57,28 @@ func TestSampleTapestryAddNodes(t *testing.T) {
 		t.Errorf("Addition of node failed")
 	}
 }
+
+func TestLeave(t *testing.T) {
+	tap, _ := MakeTapestries(true, "1", "3", "5") //Make a tapestry with these ids
+	fmt.Printf("length of tap %d\n", len(tap))
+	tap[1].Leave()
+	resp, _ := tap[0].FindRoot(
+		context.Background(),
+		CreateIDMsg("2", 0),
+	) //After killing 3 and 5, this should route to 7
+	if resp.Next != tap[2].Id.String() {
+		t.Errorf("Failed to kill successfully")
+	}
+
+}
+
+func TestGetError(t *testing.T) {
+	tap, _ := MakeTapestries(true, "1", "10") //Make a tapestry with these ids
+	blob := []byte{1, 2, 3}
+	tap[0].Store("9", blob)
+	tap[0].Remove("9")
+	_, err := tap[1].Get("9")
+	if err == nil {
+		t.Errorf("Should get error from un-exist key")
+	}
+}

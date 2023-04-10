@@ -3,3 +3,4 @@
 modist
 __debug_bin
 *.out
+.DS_Store

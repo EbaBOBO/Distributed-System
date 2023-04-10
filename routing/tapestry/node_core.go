@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	pb "modist/proto"
+	"time"
 )
 
 // Store a blob on the local node and publish the key to the tapestry.
@@ -82,7 +83,48 @@ func (local *TapestryNode) Remove(key string) bool {
 //   - Keep trying to republish regardless of how the last attempt went
 func (local *TapestryNode) Publish(key string) (chan bool, error) {
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("Publish has not been implemented yet!")
+
+	cancel := make(chan bool)
+	err := local.publishHelper(key)
+	if err != nil {
+		return cancel, nil
+	}
+
+	go func() {
+		t := time.NewTicker(REPUBLISH)
+		for {
+			select {
+			case <-cancel:
+				return
+			case <-t.C:
+				err := local.publishHelper(key)
+				if err != nil {
+					local.log.Print(err)
+				}
+			}
+		}
+	}()
+	return cancel, nil
+}
+
+func (local *TapestryNode) publishHelper(key string) (err error) {
+
+	for i := 0; i < RETRIES; i++ {
+		rootId, err := local.FindRootOnRemoteNode(local.Id, Hash((key)))
+		if err != nil {
+			local.log.Print(err)
+		}
+		conn := local.Node.PeerConns[local.RetrieveID(*rootId)]
+		rootNode := pb.NewTapestryRPCClient(conn)
+		ok, err := rootNode.Register(context.Background(), &pb.Registration{FromNode: local.Id.String(), Key: key})
+		if !ok.Ok || err != nil {
+			local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: []string{rootId.String()}})
+			local.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: rootId.String()})
+		} else {
+			return nil
+		}
+	}
+	return errors.New("publish tries too many times")
 }
 
 // Lookup look up the Tapestry nodes that are storing the blob for the specified key.
@@ -92,7 +134,27 @@ func (local *TapestryNode) Publish(key string) (chan bool, error) {
 // - Attempt up to RETRIES times
 func (local *TapestryNode) Lookup(key string) ([]ID, error) {
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("Lookup has not been implemented yet!")
+
+	for i := 0; i < RETRIES; i++ {
+		msg, _ := local.FindRoot(context.Background(), &pb.IdMsg{Id: Hash(key).String(), Level: 0})
+		root, _ := ParseID(msg.Next)
+		conn := local.Node.PeerConns[local.RetrieveID(root)]
+		rootNode := pb.NewTapestryRPCClient(conn)
+		loc, err := rootNode.Fetch(context.Background(), &pb.TapestryKey{Key: key})
+
+		if err != nil {
+			_, _ = local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: []string{root.String()}})
+			_, _ = local.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: root.String()})
+		} else {
+			var res []ID
+			for _, it := range loc.Values {
+				id, _ := ParseID(it)
+				res = append(res, id)
+			}
+			return res, nil
+		}
+	}
+	return nil, errors.New("too many retries")
 }
 
 // FindRoot returns the root for the id in idMsg by recursive RPC calls on the next hop found in our routing table
@@ -107,7 +169,33 @@ func (local *TapestryNode) FindRoot(ctx context.Context, idMsg *pb.IdMsg) (*pb.R
 	level := idMsg.Level
 
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("FindRoot has not been implemented yet!")
+	if level >= DIGITS {
+		return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil
+	}
+	var toRemove []string
+	var rootMsg *pb.RootMsg
+	for {
+		nextHop := local.Table.FindNextHop(id, level)
+		if nextHop.String() == local.String() {
+			return &pb.RootMsg{Next: local.String(), ToRemove: []string{}}, nil
+		}
+		conn := local.Node.PeerConns[local.RetrieveID(nextHop)]
+		nextNode := pb.NewTapestryRPCClient(conn)
+		rootMsg, err = nextNode.FindRoot(ctx, &pb.IdMsg{Id: id.String(), Level: level + 1})
+		if err != nil {
+			local.log.Print(err)
+			toRemove = append(toRemove, nextHop.String())
+			var ok *pb.Ok
+			ok, err = local.RemoveBadNodes(context.Background(), &pb.Neighbors{Neighbors: toRemove})
+			if !ok.Ok || err != nil {
+				return &pb.RootMsg{}, nil
+			}
+		} else {
+			break
+		}
+	}
+	local.RemoveBadNodes(ctx, &pb.Neighbors{Neighbors: toRemove})
+	return rootMsg, nil
 }
 
 // The node that stores some data with key is registering themselves to us as an advertiser of the key.
@@ -126,7 +214,11 @@ func (local *TapestryNode) Register(
 	key := registration.Key
 
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("Register has not been implemented yet!")
+	local.LocationsByKey.Register(key, from, TIMEOUT)
+	res := pb.Ok{
+		Ok: local.Table.FindNextHop(Hash(key), 0).String() == local.String(),
+	}
+	return &res, nil
 }
 
 // Fetch checks that we are the root node for the requested key and
@@ -136,7 +228,17 @@ func (local *TapestryNode) Fetch(
 	key *pb.TapestryKey,
 ) (*pb.FetchedLocations, error) {
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("Fetch has not been implemented yet!")
+	keyStr := key.GetKey()
+	id := Hash(keyStr)
+	root := local.Table.FindNextHop(id, 0)
+	var value []string
+	for _, it := range local.LocationsByKey.Get(keyStr) {
+		value = append(value, it.String())
+	}
+	return &pb.FetchedLocations{
+		IsRoot: root.String() == local.String(),
+		Values: value,
+	}, nil
 }
 
 // Retrieves the blob corresponding to a key
@@ -177,11 +279,23 @@ func (local *TapestryNode) Transfer(
 	}
 
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("Transfer has not been implemented yet!")
+	local.LocationsByKey.RegisterAll(nodeMap, TIMEOUT)
+	if err := local.AddRoute(from); err != nil {
+		return &pb.Ok{Ok: false}, err
+	}
+
+	return &pb.Ok{Ok: true}, nil
 }
 
 // calls FindRoot on a remote node to find the root of the given id
 func (local *TapestryNode) FindRootOnRemoteNode(remoteNodeId ID, id ID) (*ID, error) {
 	// TODO(students): [Tapestry] Implement me!
-	return nil, errors.New("FindRootOnRemoteNode has not been implemented yet!")
+	conn := local.Node.PeerConns[local.RetrieveID(remoteNodeId)]
+	remote := pb.NewTapestryRPCClient(conn)
+	msg, err := remote.FindRoot(context.Background(), &pb.IdMsg{Id: id.String(), Level: 0})
+	if err != nil {
+		return nil, err
+	}
+	res, err := ParseID(msg.Next)
+	return &res, err
 }
