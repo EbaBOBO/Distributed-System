@@ -227,7 +227,9 @@ func (local *TapestryNode) AddNodeMulticast(
 	if level < DIGITS {
 		targets := local.Table.GetLevel(level)
 		targets = append(targets, local.Id)
+		var wg sync.WaitGroup
 		for _, it := range targets {
+			wg.Add(1)
 			go func(targerId ID) {
 				conn := local.Node.PeerConns[local.RetrieveID(targerId)]
 				targerNode := pb.NewTapestryRPCClient(conn)
@@ -240,8 +242,10 @@ func (local *TapestryNode) AddNodeMulticast(
 					}
 				}
 				resultMutex.Unlock()
+				wg.Done()
 			}(it)
 		}
+		wg.Wait()
 		for _, n := range targets {
 			if !slices.Contains(result, n.String()) {
 				result = append(result, n.String())
@@ -377,12 +381,18 @@ func (local *TapestryNode) AddRoute(remoteNodeId ID) error {
 		if added {
 			conn := local.Node.PeerConns[local.RetrieveID(remoteNodeId)]
 			remoteNode := pb.NewTapestryRPCClient(conn)
-			remoteNode.AddBackpointer(context.Background(), &pb.NodeMsg{Id: local.String()})
+			_, err := remoteNode.AddBackpointer(context.Background(), &pb.NodeMsg{Id: local.String()})
+			if err != nil {
+				local.log.Printf("error in AddRoute: %v", err)
+			}
 		}
 		if previous != nil {
 			conn := local.Node.PeerConns[local.RetrieveID(*previous)]
 			previousNode := pb.NewTapestryRPCClient(conn)
-			previousNode.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: local.String()})
+			_, err := previousNode.RemoveBackpointer(context.Background(), &pb.NodeMsg{Id: local.String()})
+			if err != nil {
+				local.log.Printf("error in AddRoute: %v", err)
+			}
 		}
 	}()
 	return nil
