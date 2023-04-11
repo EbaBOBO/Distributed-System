@@ -15,6 +15,7 @@ import (
 	"modist/orchestrator/node"
 	pb "modist/proto"
 	"sort"
+	"sync"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -24,7 +25,7 @@ import (
 const BASE = 16
 
 // DIGITS is the number of digits in an ID.  By default, an ID has 40 digits.
-const DIGITS = 40
+const DIGITS = 4
 
 // RETRIES is the number of retries on failure. By default we have 3 retries.
 const RETRIES = 3
@@ -222,19 +223,24 @@ func (local *TapestryNode) AddNodeMulticast(
 
 	// TODO(students): [Tapestry] Implement me!
 	var result []string
+	var resultMutex sync.Mutex
 	if level < DIGITS {
 		targets := local.Table.GetLevel(level)
 		targets = append(targets, local.Id)
 		for _, it := range targets {
-			conn := local.Node.PeerConns[local.RetrieveID(it)]
-			targerNode := pb.NewTapestryRPCClient(conn)
-			res, _ := targerNode.AddNodeMulticast(context.Background(), &pb.MulticastRequest{NewNode: multicastRequest.NewNode, Level: multicastRequest.Level + 1})
-			resNeighbors := res.Neighbors
-			for _, n := range resNeighbors {
-				if !slices.Contains(result, n) {
-					result = append(result, n)
+			go func(targerId ID) {
+				conn := local.Node.PeerConns[local.RetrieveID(targerId)]
+				targerNode := pb.NewTapestryRPCClient(conn)
+				res, _ := targerNode.AddNodeMulticast(context.Background(), &pb.MulticastRequest{NewNode: multicastRequest.NewNode, Level: multicastRequest.Level + 1})
+				resNeighbors := res.Neighbors
+				resultMutex.Lock()
+				for _, n := range resNeighbors {
+					if !slices.Contains(result, n) {
+						result = append(result, n)
+					}
 				}
-			}
+				resultMutex.Unlock()
+			}(it)
 		}
 		for _, n := range targets {
 			if !slices.Contains(result, n.String()) {
