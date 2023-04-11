@@ -45,5 +45,5 @@
 
 ``TestLeave`` tests leave
 
-``TestOffline"`` tests node go offline
+``TestOffline`` tests node go offline
 
