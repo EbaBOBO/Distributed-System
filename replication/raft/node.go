@@ -173,9 +173,6 @@ func (rn *RaftNode) Stop() {
 
 	close(rn.commitC)
 
-	if state := rn.state; !(state == ExitState) {
-		rn.stopC <- struct{}{}
-	}
 	rn.state = ExitState
 	rn.stableStore.Close()
 }
