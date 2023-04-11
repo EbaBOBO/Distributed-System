@@ -43,3 +43,7 @@
 
 ``TestGetError`` tests get error
 
+``TestLeave`` tests leave
+
+``TestOffline"`` tests node go offline
+
