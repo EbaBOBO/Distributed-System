@@ -15,7 +15,6 @@ import (
 	"modist/orchestrator/node"
 	pb "modist/proto"
 	"sort"
-	"sync"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -25,7 +24,7 @@ import (
 const BASE = 16
 
 // DIGITS is the number of digits in an ID.  By default, an ID has 40 digits.
-const DIGITS = 40
+const DIGITS = 4
 
 // RETRIES is the number of retries on failure. By default we have 3 retries.
 const RETRIES = 3
@@ -151,31 +150,29 @@ func (local *TapestryNode) Join(remoteNodeId ID) error {
 	// TODO(students): [Tapestry] Implement me!
 	for level := SharedPrefixLength(local.Id, rootId); level >= 0; level-- {
 		tmp := neighborIds
-		var tmpMutex sync.Mutex
-		var wg sync.WaitGroup
+		reschan := make(chan []string)
 		for _, n := range neighborIds {
-			wg.Add(1)
 			go func(nodeId ID) {
 				conn := local.Node.PeerConns[local.RetrieveID(nodeId)]
 				remoteNode := pb.NewTapestryRPCClient(conn)
 				res, err := remoteNode.GetBackpointers(context.Background(), &pb.BackpointerRequest{From: local.String(), Level: int32(level)})
 				if err != nil {
 					local.log.Printf("error in Join, %v", err)
-					wg.Done()
+					reschan <- []string{}
 					return
 				}
-				tmpMutex.Lock()
-				for _, it := range res.Neighbors {
-					id, _ := ParseID(it)
-					if !slices.Contains(tmp, id) {
-						tmp = append(tmp, id)
-					}
-				}
-				tmpMutex.Unlock()
-				wg.Done()
+				reschan <- res.Neighbors
 			}(n)
 		}
-		wg.Wait()
+		for range neighborIds {
+			res := <-reschan
+			for _, it := range res {
+				id, _ := ParseID(it)
+				if !slices.Contains(tmp, id) {
+					tmp = append(tmp, id)
+				}
+			}
+		}
 		for _, n := range tmp {
 			local.AddRoute(n)
 		}
@@ -234,30 +231,32 @@ func (local *TapestryNode) AddNodeMulticast(
 	local.log.Printf("Add node multicast %v at level %v\n", newNodeId, level)
 
 	// TODO(students): [Tapestry] Implement me!
+	resChan := make(chan []string)
 	var result []string
-	var resultMutex sync.Mutex
 	if level < DIGITS {
 		targets := local.Table.GetLevel(level)
 		targets = append(targets, local.Id)
-		var wg sync.WaitGroup
 		for _, it := range targets {
-			wg.Add(1)
 			go func(targerId ID) {
 				conn := local.Node.PeerConns[local.RetrieveID(targerId)]
 				targerNode := pb.NewTapestryRPCClient(conn)
-				res, _ := targerNode.AddNodeMulticast(context.Background(), &pb.MulticastRequest{NewNode: multicastRequest.NewNode, Level: multicastRequest.Level + 1})
-				resNeighbors := res.Neighbors
-				resultMutex.Lock()
-				for _, n := range resNeighbors {
-					if !slices.Contains(result, n) {
-						result = append(result, n)
-					}
+				res, err := targerNode.AddNodeMulticast(context.Background(), &pb.MulticastRequest{NewNode: multicastRequest.NewNode, Level: multicastRequest.Level + 1})
+				if err != nil {
+					resChan <- []string{}
+					return
 				}
-				resultMutex.Unlock()
-				wg.Done()
+				resChan <- res.Neighbors
 			}(it)
 		}
-		wg.Wait()
+		for range targets {
+			n := <-resChan
+			for _, it := range n {
+				if !slices.Contains(result, it) {
+					result = append(result, it)
+				}
+			}
+		}
+
 		for _, n := range targets {
 			if !slices.Contains(result, n.String()) {
 				result = append(result, n.String())
