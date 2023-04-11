@@ -25,7 +25,7 @@ import (
 const BASE = 16
 
 // DIGITS is the number of digits in an ID.  By default, an ID has 40 digits.
-const DIGITS = 4
+const DIGITS = 40
 
 // RETRIES is the number of retries on failure. By default we have 3 retries.
 const RETRIES = 3
