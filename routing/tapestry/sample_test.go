@@ -58,10 +58,22 @@ func TestSampleTapestryAddNodes(t *testing.T) {
 	}
 }
 
+func TestGetError(t *testing.T) {
+	tap, _ := MakeTapestries(true, "1", "10") //Make a tapestry with these ids
+	blob := []byte{1, 2, 3}
+	tap[0].Store("9", blob)
+	tap[0].Remove("9")
+	_, err := tap[1].Get("9")
+	if err == nil {
+		t.Errorf("Should get error from un-exist key")
+	}
+}
+
 func TestLeave(t *testing.T) {
 	tap, _ := MakeTapestries(true, "1", "3", "5") //Make a tapestry with these ids
 	fmt.Printf("length of tap %d\n", len(tap))
 	tap[1].Leave()
+	time.Sleep(time.Second)
 	resp, _ := tap[0].FindRoot(
 		context.Background(),
 		CreateIDMsg("2", 0),
@@ -72,13 +84,32 @@ func TestLeave(t *testing.T) {
 
 }
 
-func TestGetError(t *testing.T) {
-	tap, _ := MakeTapestries(true, "1", "10") //Make a tapestry with these ids
-	blob := []byte{1, 2, 3}
-	tap[0].Store("9", blob)
-	tap[0].Remove("9")
-	_, err := tap[1].Get("9")
+func TestOffline(t *testing.T) {
+	tap, delayNodes, _ := MakeTapestriesDelayConnecting(
+		true,
+		[]string{"1", "5", "9", "A"},
+		[]string{"8", "12"},
+	)
+	tap[3].Kill()
+	// Add some tap nodes after the initial construction
+	for _, delayNode := range delayNodes {
+		args := Args{
+			Node:      delayNode,
+			Join:      true,
+			ConnectTo: tap[0].RetrieveID(tap[0].Id),
+		}
+		tn := Configure(args).tapestryNode
+		tap = append(tap, tn)
+		time.Sleep(1000 * time.Millisecond) //Wait for availability
+	}
+	tap[0].Store("1", []byte("info"))
+	res, err := tap[1].Get("1")
+	if !bytes.Equal(res, []byte("info")) || err != nil {
+		t.Errorf("Failed to store after node offline")
+	}
+	tap[0].Kill()
+	_, err = tap[1].Get("1")
 	if err == nil {
-		t.Errorf("Should get error from un-exist key")
+		t.Errorf("Should be a failure")
 	}
 }
