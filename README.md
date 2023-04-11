@@ -41,6 +41,5 @@
 
 ``TestFindNextHop`` tests findnexthop
 
-``TestLeave`` tests node leave
-
 ``TestGetError`` tests get error
+
