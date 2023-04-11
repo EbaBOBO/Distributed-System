@@ -10,7 +10,6 @@ package tapestry
 import (
 	"context"
 	pb "modist/proto"
-	"sync"
 )
 
 // Kill this node without gracefully leaving the tapestry.
@@ -38,19 +37,15 @@ func (local *TapestryNode) Leave() error {
 		}
 	}
 	local.log.Printf("Leave called, local: %v, replace node: %v", local.String(), replace.String())
-	var wg sync.WaitGroup
 	for level := 0; level < DIGITS; level++ {
 		for _, nd := range local.Backpointers.Get(level) {
-			conn := local.Node.PeerConns[local.RetrieveID(nd)]
-			client := pb.NewTapestryRPCClient(conn)
-			wg.Add(1)
-			go func() {
+			go func(nodeId ID) {
+				conn := local.Node.PeerConns[local.RetrieveID(nodeId)]
+				client := pb.NewTapestryRPCClient(conn)
 				client.NotifyLeave(context.Background(), &pb.LeaveNotification{From: local.String(), Replacement: replace.String()})
-				wg.Done()
-			}()
+			}(nd)
 		}
 	}
-	wg.Wait()
 	local.blobstore.DeleteAll()
 	go local.Node.GrpcServer.GracefulStop()
 	return nil
