@@ -151,19 +151,31 @@ func (local *TapestryNode) Join(remoteNodeId ID) error {
 	// TODO(students): [Tapestry] Implement me!
 	for level := SharedPrefixLength(local.Id, rootId); level >= 0; level-- {
 		tmp := neighborIds
+		var tmpMutex sync.Mutex
+		var wg sync.WaitGroup
 		for _, n := range neighborIds {
+			wg.Add(1)
 			go func(nodeId ID) {
 				conn := local.Node.PeerConns[local.RetrieveID(nodeId)]
 				remoteNode := pb.NewTapestryRPCClient(conn)
-				res, _ := remoteNode.GetBackpointers(context.Background(), &pb.BackpointerRequest{From: local.String(), Level: int32(level)})
+				res, err := remoteNode.GetBackpointers(context.Background(), &pb.BackpointerRequest{From: local.String(), Level: int32(level)})
+				if err != nil {
+					local.log.Printf("error in Join, %v", err)
+					wg.Done()
+					return
+				}
+				tmpMutex.Lock()
 				for _, it := range res.Neighbors {
 					id, _ := ParseID(it)
 					if !slices.Contains(tmp, id) {
 						tmp = append(tmp, id)
 					}
 				}
+				tmpMutex.Unlock()
+				wg.Done()
 			}(n)
 		}
+		wg.Wait()
 		for _, n := range tmp {
 			local.AddRoute(n)
 		}
