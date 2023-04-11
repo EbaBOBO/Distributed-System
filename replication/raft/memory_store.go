@@ -57,7 +57,7 @@ func (store *MemoryStore) SetUint64(key []byte, value uint64) error {
 	return nil
 }
 
-// GetUint64 retrieves a uint64 from Bolt
+// GetUint64 retrieves a uint64 from memory store
 func (store *MemoryStore) GetUint64(key []byte) uint64 {
 	keyStr := string(key)
 	store.stateMu.RLock()
@@ -70,7 +70,7 @@ func (store *MemoryStore) GetUint64(key []byte) uint64 {
 	return 0
 }
 
-// StoreLog grabs the next log index and stores a LogEntry into Bolt
+// StoreLog grabs the next log index and stores a LogEntry into memory store
 func (store *MemoryStore) StoreLog(log *pb.LogEntry) error {
 	store.logsMu.Lock()
 	defer store.logsMu.Unlock()
@@ -85,7 +85,7 @@ func (store *MemoryStore) StoreLog(log *pb.LogEntry) error {
 	return nil
 }
 
-// GetLog retrieves a LogEntry at a specific log index from Bolt
+// GetLog retrieves a LogEntry at a specific log index from memory store
 func (store *MemoryStore) GetLog(index uint64) *pb.LogEntry {
 	store.logsMu.RLock()
 	defer store.logsMu.RUnlock()
@@ -97,7 +97,7 @@ func (store *MemoryStore) GetLog(index uint64) *pb.LogEntry {
 	return nil
 }
 
-// LastLogIndex gets the last index inserted into Bolt
+// LastLogIndex gets the last index inserted into memory store
 func (store *MemoryStore) LastLogIndex() uint64 {
 	return store.lastLogIndex.Load()
 }

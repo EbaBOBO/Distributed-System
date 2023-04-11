@@ -181,14 +181,21 @@ func (h *Handler) configureReplicators(
 				)
 			}
 		case "raft":
-			config := &raft.Config{
-				ElectionTimeout:  time.Millisecond * 150,
-				HeartbeatTimeout: time.Millisecond * 50,
-				Storage:          raft.NewMemoryStore(),
-				// Storage: NewBoltStore(filepath.Join(os.TempDir(), fmt.Sprintf("raft%s", node.Addr.Host)))
-			}
+			// err := os.Mkdir("raft-log", 0777)
+			// if err != nil && !os.IsExist(err) {
+			// log.Fatal(err)
+			// }
 
 			for _, node := range cluster.Nodes {
+				config := &raft.Config{
+					ElectionTimeout:  time.Millisecond * 150,
+					HeartbeatTimeout: time.Millisecond * 50,
+					// Storage: raft.NewBoltStore(
+					// filepath.Join("raft-log", fmt.Sprintf("raft%s", node.Addr.Host)),
+					// ),
+					Storage: raft.NewMemoryStore(),
+				}
+
 				raft.Configure(raft.Args{
 					Node:   node,
 					Config: config,

@@ -6,7 +6,14 @@ import (
 	"modist/orchestrator/node"
 	pb "modist/proto"
 	"sync"
+	"time"
 )
+
+// RETRIES is the number of retries upon failure. By default, we have 3
+const RETRIES = 3
+
+// RETRY_TIME is the amount of time to wait between retries
+const RETRY_TIME = 100 * time.Millisecond
 
 type State struct {
 	// In-memory key value store
@@ -16,7 +23,6 @@ type State struct {
 	// Channels given back by the underlying Raft implementation
 	proposeC chan<- []byte
 	commitC  <-chan *commit
-	errorC   <-chan error
 
 	// Observability
 	log *log.Logger
@@ -46,13 +52,12 @@ func Configure(args any) *State {
 	config := a.Config
 
 	proposeC := make(chan []byte)
-	commitC, errorC := NewRaftNode(node, config, proposeC)
+	commitC := NewRaftNode(node, config, proposeC)
 
 	s := &State{
 		store:    make(map[string]string),
 		proposeC: proposeC,
 		commitC:  commitC,
-		errorC:   errorC,
 
 		log: node.Log,
 
@@ -74,9 +79,13 @@ func Configure(args any) *State {
 // ReplicateKey replicates the (key, value) given in the PutRequest by relaying it to the
 // underlying Raft cluster/implementation.
 //
-// Specifically, you will need to put the (key, value) in the proposeC channel and wait until
-// the Raft cluster has confirmed that it has been committed. Think about how you can use the
-// commitC channel to find out when something has been committed.
+// You should first marshal the KV struct using the encoding/json library. Then, put the
+// marshalled struct in the proposeC channel and wait until the Raft cluster has confirmed that
+// it has been committed. Think about how you can use the commitC channel to find out when
+// something has been committed.
+//
+// If the proposal has not been committed after RETRY_TIME, you should retry it. You should retry
+// the proposal a maximum of RETRIES times, at which point you can return a nil reply and an error.
 func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutReply, error) {
 
 	// TODO(students): [Raft] Implement me!
@@ -84,7 +93,7 @@ func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutRepl
 }
 
 // GetReplicatedKey reads the given key from s.store. The implementation of
-// this method should be 8-12 lines.
+// this method should be pretty short (roughly 8-12 lines).
 func (s *State) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.GetReply, error) {
 
 	// TODO(students): [Raft] Implement me!
