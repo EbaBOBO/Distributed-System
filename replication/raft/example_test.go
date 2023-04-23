@@ -300,15 +300,17 @@ func TestBasicStoreKV(t *testing.T) {
 	addrs := generateRaftAddrs(5)
 	nodes := node.Create(addrs)
 
-	config := &Config{
-		ElectionTimeout:  time.Millisecond * 150,
-		HeartbeatTimeout: time.Millisecond * 50,
-		Storage:          NewMemoryStore(),
-	}
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
 
 	var replicators []*State
 	for _, node := range nodes {
-		node.Log = log.New(io.Discard, "", 0)
+		config := &Config{
+			ElectionTimeout:  et,
+			HeartbeatTimeout: ht,
+			Storage:          NewMemoryStore(),
+		}
+
 		replicator := Configure(Args{
 			Node:   node,
 			Config: config,
@@ -317,7 +319,7 @@ func TestBasicStoreKV(t *testing.T) {
 	}
 
 	// Allow leader to be elected
-	time.Sleep(2 * config.ElectionTimeout)
+	time.Sleep(2 * et)
 
 	store := make(map[string]string)
 
@@ -328,6 +330,9 @@ func TestBasicStoreKV(t *testing.T) {
 		store[key] = val
 		replicateRandomly(t, replicators, key, val)
 	}
+
+	// Sleep to allow last log time to replicate
+	time.Sleep(2 * ht)
 
 	for i := 0; i < 300; i++ {
 		key := fmt.Sprint(i)
