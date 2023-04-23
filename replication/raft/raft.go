@@ -2,10 +2,13 @@ package raft
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log"
 	"modist/orchestrator/node"
 	pb "modist/proto"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -72,8 +75,28 @@ func Configure(args any) *State {
 	go grpcServer.Serve(node.Listener)
 
 	// TODO(students): [Raft] Call helper functions if needed
+	go func() {
+		for {
+			bytes, ok := <-s.commitC
+			if !ok {
+				s.log.Printf("commit channel closed, exit")
+				return
+			}
+			kv := RaftKVPair{}
+			json.Unmarshal(*bytes, &kv)
+			s.mu.Lock()
+			s.store[kv.Key] = kv.Value
+			s.mu.Unlock()
+			s.log.Printf("store updated: %s -> %s", kv.Key, kv.Value)
+		}
+	}()
 
 	return s
+}
+
+type RaftKVPair struct {
+	Key   string
+	Value string
 }
 
 // ReplicateKey replicates the (key, value) given in the PutRequest by relaying it to the
@@ -87,9 +110,35 @@ func Configure(args any) *State {
 // If the proposal has not been committed after RETRY_TIME, you should retry it. You should retry
 // the proposal a maximum of RETRIES times, at which point you can return a nil reply and an error.
 func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutReply, error) {
-
 	// TODO(students): [Raft] Implement me!
-	return nil, nil
+	msg := RaftKVPair{
+		Key:   r.Key,
+		Value: r.Value,
+	}
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		s.log.Printf("error marshalling: %v", err)
+		return nil, err
+	}
+	s.proposeC <- bytes
+	t := time.NewTimer(RETRY_TIME)
+	var retries atomic.Int32
+	retries.Store(0)
+	for retries.Load() < RETRIES {
+		select {
+		case <-t.C:
+			// need to retry
+			s.proposeC <- bytes
+			retries.Add(1)
+		case <-s.commitC:
+			// success
+			// how you can use the commitC channel to find out when
+			// something has been committed. ???
+			return &pb.PutReply{}, nil
+		}
+
+	}
+	return nil, errors.New("ReplicateKey error: retries exceeded")
 }
 
 // GetReplicatedKey reads the given key from s.store. The implementation of
@@ -97,5 +146,8 @@ func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutRepl
 func (s *State) GetReplicatedKey(ctx context.Context, r *pb.GetRequest) (*pb.GetReply, error) {
 
 	// TODO(students): [Raft] Implement me!
-	return nil, nil
+	reply := pb.GetReply{
+		Value: s.store[r.Key],
+	}
+	return &reply, nil
 }

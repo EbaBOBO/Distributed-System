@@ -82,12 +82,11 @@ func (rn *RaftNode) doFollower() stateFunction {
 			}
 			// If leaderCommit > commitIndex, set commitIndex =
 			// min(leaderCommit, index of last new entry)
-			// ?????
 			if req.LeaderCommit > rn.commitIndex {
-				if req.LeaderCommit <= rn.lastApplied {
+				if req.LeaderCommit <= rn.LastLogIndex() {
 					rn.commitIndex = req.LeaderCommit
 				} else {
-					rn.commitIndex = rn.lastApplied
+					rn.commitIndex = rn.LastLogIndex()
 				}
 			}
 			replyChan <- pb.AppendEntriesReply{
