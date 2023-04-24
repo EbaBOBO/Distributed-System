@@ -62,6 +62,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 					Term:    rn.GetCurrentTerm(),
 					Success: false,
 				}
+				continue
 			}
 			if req.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(req.Term)
@@ -73,6 +74,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 					Term:    rn.GetCurrentTerm(),
 					Success: false,
 				}
+				continue
 			}
 			if l := rn.GetLog(req.PrevLogIndex + 1); l != nil && l.Term != req.Term {
 				rn.TruncateLog(req.PrevLogIndex + 1)
@@ -90,6 +92,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 					rn.commitIndex = rn.LastLogIndex()
 				}
 			}
+			rn.leader = req.From
 			replyChan <- pb.AppendEntriesReply{
 				From:    rn.node.ID,
 				To:      req.From,

@@ -64,6 +64,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		case reply := <-replyChan:
 			if reply.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(reply.Term)
+
 				return rn.doFollower
 			}
 			if reply.VoteGranted {
@@ -142,6 +143,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				Term:    rn.GetCurrentTerm(),
 				Success: true,
 			}
+			rn.leader = req.From
 			return rn.doFollower
 		case _, ok := <-rn.proposeC:
 			// Stop

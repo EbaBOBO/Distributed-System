@@ -19,6 +19,13 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// possible channel.
 
 	// initial heartbeat
+	rn.StoreLog(&pb.LogEntry{
+		Term:  rn.GetCurrentTerm(),
+		Data:  nil,
+		Type:  pb.EntryType_NORMAL,
+		Index: rn.LastLogIndex() + 1,
+	})
+
 	for k, v := range rn.node.PeerConns {
 		if k == rn.node.ID {
 			continue
@@ -33,7 +40,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 				Term:         rn.GetCurrentTerm(),
 				PrevLogIndex: rn.LastLogIndex() - 1,
 				PrevLogTerm:  rn.GetLog(rn.LastLogIndex() - 1).Term,
-				Entries:      []*pb.LogEntry{},
+				Entries:      nil,
 				LeaderCommit: rn.commitIndex,
 			}
 			reply, err := remoteNode.AppendEntries(ctx, msgReq)
@@ -174,6 +181,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 		case appendEntry := <-rn.appendEntriesC:
 			if appendEntry.request.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(appendEntry.request.Term)
+				rn.leader = appendEntry.request.From
 				return rn.doFollower
 			}
 		}

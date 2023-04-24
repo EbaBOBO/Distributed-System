@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // RETRIES is the number of retries upon failure. By default, we have 3
@@ -32,6 +34,9 @@ type State struct {
 
 	// The public-facing API that this replicator must implement
 	pb.ReplicatorServer
+
+	successChans      map[string]chan string
+	successChansMutex sync.Mutex
 }
 
 type Args struct {
@@ -65,6 +70,7 @@ func Configure(args any) *State {
 		log: node.Log,
 
 		// TODO(students): [Raft] Initialize any additional fields and add to State struct
+		successChans: make(map[string]chan string),
 	}
 
 	// We registered RaftRPCServer when calling NewRaftNode above so we only need to
@@ -87,6 +93,16 @@ func Configure(args any) *State {
 			s.mu.Lock()
 			s.store[kv.Key] = kv.Value
 			s.mu.Unlock()
+
+			s.successChansMutex.Lock()
+			successChan, ok := s.successChans[kv.UUID]
+			s.successChansMutex.Unlock()
+
+			if !ok {
+				s.log.Printf("no success channel for %s", kv.UUID)
+			} else {
+				successChan <- "success"
+			}
 			s.log.Printf("store updated: %s -> %s", kv.Key, kv.Value)
 		}
 	}()
@@ -97,6 +113,7 @@ func Configure(args any) *State {
 type RaftKVPair struct {
 	Key   string
 	Value string
+	UUID  string
 }
 
 // ReplicateKey replicates the (key, value) given in the PutRequest by relaying it to the
@@ -111,15 +128,29 @@ type RaftKVPair struct {
 // the proposal a maximum of RETRIES times, at which point you can return a nil reply and an error.
 func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutReply, error) {
 	// TODO(students): [Raft] Implement me!
+	kvUUID := uuid.New().String()
 	msg := RaftKVPair{
 		Key:   r.Key,
 		Value: r.Value,
+		UUID:  kvUUID,
 	}
 	bytes, err := json.Marshal(msg)
 	if err != nil {
 		s.log.Printf("error marshalling: %v", err)
 		return nil, err
 	}
+	successChan := make(chan string)
+
+	s.successChansMutex.Lock()
+	s.successChans[kvUUID] = successChan
+	s.successChansMutex.Unlock()
+
+	defer func() {
+		s.successChansMutex.Lock()
+		delete(s.successChans, kvUUID)
+		s.successChansMutex.Unlock()
+	}()
+
 	s.proposeC <- bytes
 	t := time.NewTimer(RETRY_TIME)
 	var retries atomic.Int32
@@ -130,13 +161,10 @@ func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutRepl
 			// need to retry
 			s.proposeC <- bytes
 			retries.Add(1)
-		case <-s.commitC:
+		case <-successChan:
 			// success
-			// how you can use the commitC channel to find out when
-			// something has been committed. ???
 			return &pb.PutReply{}, nil
 		}
-
 	}
 	return nil, errors.New("ReplicateKey error: retries exceeded")
 }
