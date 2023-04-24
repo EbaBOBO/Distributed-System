@@ -18,6 +18,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// leader state should do when it receives an incoming message on every
 	// possible channel.
 
+	rn.leader = rn.node.ID
 	// initial heartbeat
 	rn.StoreLog(&pb.LogEntry{
 		Term:  rn.GetCurrentTerm(),
