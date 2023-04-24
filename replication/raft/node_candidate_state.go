@@ -72,6 +72,30 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			if votesCnt >= votesToWin {
 				return rn.doLeader
 			}
+		case req := <-rn.requestVoteC:
+
+			if req.request.Term < rn.GetCurrentTerm() {
+				req.reply <- pb.RequestVoteReply{
+					From:        rn.node.ID,
+					To:          req.request.From,
+					Term:        rn.GetCurrentTerm(),
+					VoteGranted: false,
+				}
+			}
+			if (rn.GetVotedFor() == req.request.From) && (rn.LastLogIndex() >= req.request.LastLogIndex) {
+				req.reply <- pb.RequestVoteReply{
+					From:        rn.node.ID,
+					To:          req.request.From,
+					Term:        rn.GetCurrentTerm(),
+					VoteGranted: true,
+				}
+			}
+			req.reply <- pb.RequestVoteReply{
+				From:        rn.node.ID,
+				To:          req.request.From,
+				Term:        rn.GetCurrentTerm(),
+				VoteGranted: false,
+			}
 		case appendEntries := <-rn.appendEntriesC:
 			// Got AppendEntries RPC
 			// Become follower

@@ -107,6 +107,10 @@ func (rn *RaftNode) doLeader() stateFunction {
 			}
 			N--
 		}
+		if rn.commitIndex > rn.lastApplied {
+			rn.lastApplied++
+			rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
+		}
 		select {
 		case <-t.C:
 			for k, v := range rn.node.PeerConns {
@@ -135,7 +139,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 				}(k, v)
 			}
 		// If command received from client: append entry to local log,
-		// respond after entry applied to state machine ???
+		// respond after entry applied to state machine
 		case cmd := <-rn.proposeC:
 			entry := pb.LogEntry{
 				Index: rn.LastLogIndex() + 1,
@@ -144,7 +148,36 @@ func (rn *RaftNode) doLeader() stateFunction {
 				Data:  cmd,
 			}
 			rn.StoreLog(&entry)
+		case msg := <-rn.requestVoteC:
+			if msg.request.Term < rn.GetCurrentTerm() {
+				reply := pb.RequestVoteReply{
+					From:        rn.node.ID,
+					To:          msg.request.From,
+					Term:        rn.GetCurrentTerm(),
+					VoteGranted: false,
+				}
+				msg.reply <- reply
+			}
+			if (rn.GetVotedFor() == None ||
+				rn.GetVotedFor() == msg.request.From) &&
+				rn.LastLogIndex() >= msg.request.LastLogIndex {
+				rn.setVotedFor(msg.request.From)
+				reply := pb.RequestVoteReply{
+					From:        rn.node.ID,
+					To:          msg.request.From,
+					Term:        rn.GetCurrentTerm(),
+					VoteGranted: true,
+				}
+				msg.reply <- reply
+				return rn.doFollower
+			}
+		case appendEntry := <-rn.appendEntriesC:
+			if appendEntry.request.Term > rn.GetCurrentTerm() {
+				rn.SetCurrentTerm(appendEntry.request.Term)
+				return rn.doFollower
+			}
 		}
+
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"context"
 	pb "modist/proto"
 	"time"
 )
@@ -94,6 +95,22 @@ func (rn *RaftNode) doFollower() stateFunction {
 				To:      req.From,
 				Term:    rn.GetCurrentTerm(),
 				Success: true,
+			}
+		case msg, ok := <-rn.proposeC:
+			if !ok {
+				return nil
+			}
+			conn := rn.node.PeerConns[rn.leader]
+			leader := pb.NewRaftRPCClient(conn)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			_, err := leader.Propose(ctx, &pb.ProposalRequest{
+				From: rn.node.ID,
+				To:   rn.leader,
+				Data: msg,
+			})
+			if err != nil {
+				rn.log.Printf("propose forwarding error: %v", err)
 			}
 		}
 	}
