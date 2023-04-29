@@ -82,6 +82,7 @@ func Configure(args any) *State {
 
 	// TODO(students): [Raft] Call helper functions if needed
 	go func() {
+		s.log.Printf("starting commit channel listener on node %v", node.ID)
 		for {
 			bytes, ok := <-s.commitC
 			if !ok {

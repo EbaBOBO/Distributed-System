@@ -12,7 +12,7 @@ import (
 // doCandidate implements the logic for a Raft node in the candidate state.
 func (rn *RaftNode) doCandidate() stateFunction {
 	rn.state = CandidateState
-	rn.log.Printf("transitioning to %s state at term %d", rn.state, rn.GetCurrentTerm())
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, rn.GetCurrentTerm())
 
 	// TODO(students): [Raft] Implement me!
 	// Hint: perform any initial work, and then consider what a node in the
@@ -24,7 +24,11 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	// Vote for self
 	rn.setVotedFor(rn.node.ID)
 	// Set election timer
-	t := time.NewTicker(time.Duration(1+rand.Float64()) * rn.electionTimeout)
+	timeout := time.Duration(1+rand.Float64()) * rn.electionTimeout
+	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
+		panic("timeout is out of range")
+	}
+	t := time.NewTicker(timeout)
 	// Send RequestVoteRPCs to all other servers
 	replyChan := make(chan *pb.RequestVoteReply)
 	for k, v := range rn.node.PeerConns {
@@ -52,14 +56,10 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	votesToWin := int(len(rn.node.PeerConns) / 2)
 	votesCnt := 0
 	for {
-		if rn.commitIndex > rn.lastApplied {
-			rn.lastApplied++
-			rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-		}
 		select {
 		case <-t.C:
 			// Election timeout
-			rn.log.Printf("election timeout")
+			rn.log.Printf("Node %v: election timeout", rn.node.ID)
 			return rn.doCandidate
 		case reply := <-replyChan:
 			if reply.Term > rn.GetCurrentTerm() {
@@ -76,6 +76,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		case req := <-rn.requestVoteC:
 
 			if req.request.Term < rn.GetCurrentTerm() {
+				rn.log.Printf("requestVoteC From %v, To %v, false", req.request.From, req.request.To)
 				req.reply <- pb.RequestVoteReply{
 					From:        rn.node.ID,
 					To:          req.request.From,
@@ -84,6 +85,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				}
 			}
 			if (rn.GetVotedFor() == req.request.From) && (rn.LastLogIndex() >= req.request.LastLogIndex) {
+				rn.log.Printf("requestVoteC From %v, To %v, term %v , true", req.request.From, req.request.To, req.request.Term)
 				req.reply <- pb.RequestVoteReply{
 					From:        rn.node.ID,
 					To:          req.request.From,
@@ -91,6 +93,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 					VoteGranted: true,
 				}
 			}
+			rn.log.Printf("requestVoteC From %v, To %v, term %v, false", req.request.From, req.request.To, req.request.Term)
 			req.reply <- pb.RequestVoteReply{
 				From:        rn.node.ID,
 				To:          req.request.From,
@@ -137,6 +140,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 					rn.commitIndex = rn.LastLogIndex()
 				}
 			}
+			rn.log.Printf("appendEntriesC From %v, To %v, term %v, success %v", req.From, req.To, req.Term, true)
 			replyChan <- pb.AppendEntriesReply{
 				From:    rn.node.ID,
 				To:      req.From,
@@ -150,6 +154,11 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			if !ok {
 				rn.Stop()
 				return nil
+			}
+		default:
+			if rn.commitIndex > rn.lastApplied {
+				rn.lastApplied++
+				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
 		}
 	}

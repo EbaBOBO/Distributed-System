@@ -23,7 +23,7 @@ func (rn *RaftNode) InitStableStore() {
 func (rn *RaftNode) SetCurrentTerm(newTerm uint64) {
 	currentTerm := rn.GetCurrentTerm()
 	if newTerm != currentTerm {
-		rn.log.Printf("setting current term from %v -> %v", currentTerm, newTerm)
+		rn.log.Printf("Node %v: setting current term from %v -> %v", rn.node.ID, currentTerm, newTerm)
 	}
 	err := rn.stableStore.SetUint64([]byte("current_term"), newTerm)
 	if err != nil {

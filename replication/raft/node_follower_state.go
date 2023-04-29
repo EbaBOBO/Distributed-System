@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"math/rand"
 	pb "modist/proto"
 	"time"
 )
@@ -9,19 +10,19 @@ import (
 // doFollower implements the logic for a Raft node in the follower state.
 func (rn *RaftNode) doFollower() stateFunction {
 	rn.state = FollowerState
-	rn.log.Printf("transitioning to %s state at term %d", rn.state, rn.GetCurrentTerm())
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, rn.GetCurrentTerm())
 
 	// TODO(students): [Raft] Implement me!
 	// Hint: perform any initial work, and then consider what a node in the
 	// follower state should do when it receives an incoming message on every
 	// possible channel.
-	t := time.NewTicker(rn.electionTimeout)
+	timeout := time.Duration(1+rand.Float64()) * rn.electionTimeout
+	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
+		panic("timeout is out of range")
+	}
+	t := time.NewTicker(timeout)
 	rn.setVotedFor(None)
 	for {
-		if rn.commitIndex > rn.lastApplied {
-			rn.lastApplied++
-			rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-		}
 		select {
 		case <-t.C:
 			// heartbeat timeout
@@ -29,8 +30,10 @@ func (rn *RaftNode) doFollower() stateFunction {
 		case vote := <-rn.requestVoteC:
 			t.Reset(rn.electionTimeout)
 			req := vote.request
+
 			replyChan := vote.reply
 			if req.Term < rn.GetCurrentTerm() {
+				rn.log.Printf("requestVoteC From %v, To %v, term %v, false", req.From, req.To, req.Term)
 				replyChan <- pb.RequestVoteReply{
 					From:        rn.node.ID,
 					To:          req.From,
@@ -43,6 +46,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 				rn.setVotedFor(None)
 			}
 			if rn.GetVotedFor() == None || rn.GetVotedFor() == req.From {
+				rn.log.Printf("requestVoteC From %v, To %v, term  %v, true", req.From, req.To, req.Term)
 				rn.setVotedFor(req.From)
 				replyChan <- pb.RequestVoteReply{
 					From:        rn.node.ID,
@@ -52,6 +56,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 				}
 			}
 		case appendEntries := <-rn.appendEntriesC:
+			rn.log.Printf("AppendEntries from %v", appendEntries.request.From)
 			t.Reset(rn.electionTimeout)
 			req := appendEntries.request
 			replyChan := appendEntries.reply
@@ -114,6 +119,11 @@ func (rn *RaftNode) doFollower() stateFunction {
 			})
 			if err != nil {
 				rn.log.Printf("propose forwarding error: %v", err)
+			}
+		default:
+			if rn.commitIndex > rn.lastApplied {
+				rn.lastApplied++
+				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
 		}
 	}

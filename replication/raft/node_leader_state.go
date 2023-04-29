@@ -10,7 +10,7 @@ import (
 
 // doLeader implements the logic for a Raft node in the leader state.
 func (rn *RaftNode) doLeader() stateFunction {
-	rn.log.Printf("transitioning to leader state at term %d", rn.GetCurrentTerm())
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to leader state at term %d+++++++++++++++++++++++++", rn.GetCurrentTerm())
 	rn.state = LeaderState
 
 	// TODO(students): [Raft] Implement me!
@@ -19,6 +19,10 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// possible channel.
 
 	rn.leader = rn.node.ID
+	for k := range rn.node.PeerNodes {
+		rn.matchIndex[k] = 0
+		rn.nextIndex[k] = rn.LastLogIndex() + 1
+	}
 	// initial heartbeat
 	rn.StoreLog(&pb.LogEntry{
 		Term:  rn.GetCurrentTerm(),
@@ -56,69 +60,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 	t := time.NewTicker(rn.heartbeatTimeout)
 
 	for {
-		for k, v := range rn.nextIndex {
-			// last log index >= next index
-			if rn.LastLogIndex() >= v {
-				// send appendEntries to peer
-				go func(nodeId uint64, idx uint64) {
-					conn := rn.node.PeerConns[nodeId]
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
-					remoteNode := pb.NewRaftRPCClient(conn)
-					req := &pb.AppendEntriesRequest{
-						From:         rn.node.ID,
-						To:           nodeId,
-						Term:         rn.GetCurrentTerm(),
-						PrevLogIndex: rn.LastLogIndex() - 1,
-						PrevLogTerm:  rn.GetLog(rn.LastLogIndex() - 1).Term,
-						Entries:      []*pb.LogEntry{rn.GetLog(idx)},
-						LeaderCommit: rn.commitIndex,
-					}
-					reply, err := remoteNode.AppendEntries(ctx, req)
-					if err != nil {
-						rn.log.Printf("AppendEntries error: %v", err)
-					}
-					// Update nextIndex and matchIndex for the follower if successful
-					rn.leaderMu.Lock()
-					defer rn.leaderMu.Unlock()
-					if reply.Success {
-						rn.nextIndex[nodeId] += 1
-						rn.matchIndex[nodeId] += 1
-					} else {
-						rn.nextIndex[nodeId] -= 1
-					}
-				}(k, v)
-
-			}
-		}
-		// If there exists an N such that N > commitIndex, a majority
-		// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
-		// set commitIndex = N
-		N := rn.commitIndex + 1
-		// find min element in matchIndex
-		minIdx := rn.matchIndex[rn.node.ID]
-		for _, v := range rn.matchIndex {
-			if v < minIdx {
-				minIdx = v
-			}
-		}
-		for N >= minIdx {
-			cnt := 0
-			for _, v := range rn.matchIndex {
-				if v >= N {
-					cnt += 1
-				}
-			}
-			if cnt > len(rn.node.PeerConns)/2 && rn.GetLog(N).Term == rn.GetCurrentTerm() {
-				rn.commitIndex = N
-				break
-			}
-			N--
-		}
-		if rn.commitIndex > rn.lastApplied {
-			rn.lastApplied++
-			rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-		}
 		select {
 		case <-t.C:
 			for k, v := range rn.node.PeerConns {
@@ -126,6 +67,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 					continue
 				}
 				go func(nodeId uint64, conn *grpc.ClientConn) {
+					rn.log.Printf("leader sent heartbeat to %v", nodeId)
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					remoteNode := pb.NewRaftRPCClient(conn)
@@ -156,8 +98,11 @@ func (rn *RaftNode) doLeader() stateFunction {
 				Data:  cmd,
 			}
 			rn.StoreLog(&entry)
+
 		case msg := <-rn.requestVoteC:
+
 			if msg.request.Term < rn.GetCurrentTerm() {
+				rn.log.Printf("requestVoteC From %v, To %v, false", msg.request.From, msg.request.To)
 				reply := pb.RequestVoteReply{
 					From:        rn.node.ID,
 					To:          msg.request.From,
@@ -169,6 +114,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			if (rn.GetVotedFor() == None ||
 				rn.GetVotedFor() == msg.request.From) &&
 				rn.LastLogIndex() >= msg.request.LastLogIndex {
+				rn.log.Printf("requestVoteC From %v, To %v, true", msg.request.From, msg.request.To)
 				rn.setVotedFor(msg.request.From)
 				reply := pb.RequestVoteReply{
 					From:        rn.node.ID,
@@ -184,6 +130,68 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.SetCurrentTerm(appendEntry.request.Term)
 				rn.leader = appendEntry.request.From
 				return rn.doFollower
+			}
+		default:
+			for k, v := range rn.nextIndex {
+				// last log index >= next index
+				if rn.LastLogIndex() >= v {
+					// send appendEntries to peer
+					go func(nodeId uint64, idx uint64) {
+						conn := rn.node.PeerConns[nodeId]
+						ctx, cancel := context.WithCancel(context.Background())
+						defer cancel()
+						remoteNode := pb.NewRaftRPCClient(conn)
+						req := &pb.AppendEntriesRequest{
+							From:         rn.node.ID,
+							To:           nodeId,
+							Term:         rn.GetCurrentTerm(),
+							PrevLogIndex: rn.LastLogIndex() - 1,
+							PrevLogTerm:  rn.GetLog(rn.LastLogIndex() - 1).Term,
+							Entries:      []*pb.LogEntry{rn.GetLog(idx)},
+							LeaderCommit: rn.commitIndex,
+						}
+						rn.log.Print(rn.GetLog(idx))
+						reply, err := remoteNode.AppendEntries(ctx, req)
+						if err != nil {
+							rn.log.Printf("AppendEntries error: %v", err)
+						}
+						// Update nextIndex and matchIndex for the follower if successful
+						rn.leaderMu.Lock()
+						defer rn.leaderMu.Unlock()
+						if reply.Success {
+							rn.nextIndex[nodeId] += 1
+							rn.matchIndex[nodeId] += 1
+						} else {
+							rn.nextIndex[nodeId] -= 1
+						}
+					}(k, v)
+
+				}
+			}
+
+			// If there exists an N such that N > commitIndex, a majority
+			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
+			// set commitIndex = N
+			N := rn.commitIndex
+			for {
+				N += 1
+				cnt := 0
+				for _, v := range rn.matchIndex {
+					if v >= N {
+						cnt++
+					}
+				}
+				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N).Term == rn.GetCurrentTerm() {
+					rn.commitIndex = N
+					continue
+				} else {
+					break
+				}
+			}
+
+			if rn.commitIndex > rn.lastApplied {
+				rn.lastApplied++
+				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
 		}
 
