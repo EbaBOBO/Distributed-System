@@ -38,6 +38,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 					VoteGranted: false,
 				}
 			}
+
 			if req.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(req.Term)
 				rn.setVotedFor(None)
@@ -76,10 +77,22 @@ func (rn *RaftNode) doFollower() stateFunction {
 				}
 				continue
 			}
-			if l := rn.GetLog(req.PrevLogIndex + 1); l != nil && l.Term != req.Term {
-				rn.TruncateLog(req.PrevLogIndex + 1)
+
+			startIdx := 0
+			for _, entry := range req.Entries {
+				idx, term := entry.Index, entry.Term
+				if curTerm := rn.GetLog(idx).Term; curTerm != term {
+					rn.TruncateLog(idx)
+					startIdx = int(idx)
+					break
+				}
 			}
-			for _, it := range req.Entries {
+
+			//if l := rn.GetLog(req.PrevLogIndex + 1); l != nil && l.Term != req.Term {
+			//	rn.TruncateLog(req.PrevLogIndex + 1)
+			//}
+
+			for _, it := range req.Entries[startIdx:] {
 				rn.StoreLog(it)
 				rn.lastApplied++
 			}

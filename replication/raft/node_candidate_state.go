@@ -19,7 +19,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	// candidate state should do when it receives an incoming message on every
 	// possible channel.
 
-	// Increment currentTrem
+	// Increment currentTerm
 	rn.SetCurrentTerm(rn.GetCurrentTerm() + 1)
 	// Vote for self
 	rn.setVotedFor(rn.node.ID)
@@ -75,28 +75,32 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			}
 		case req := <-rn.requestVoteC:
 
-			if req.request.Term < rn.GetCurrentTerm() {
-				req.reply <- pb.RequestVoteReply{
-					From:        rn.node.ID,
-					To:          req.request.From,
-					Term:        rn.GetCurrentTerm(),
-					VoteGranted: false,
-				}
-			}
-			if (rn.GetVotedFor() == req.request.From) && (rn.LastLogIndex() >= req.request.LastLogIndex) {
-				req.reply <- pb.RequestVoteReply{
-					From:        rn.node.ID,
-					To:          req.request.From,
-					Term:        rn.GetCurrentTerm(),
-					VoteGranted: true,
-				}
-			}
-			req.reply <- pb.RequestVoteReply{
+			replyMsg := pb.RequestVoteReply{
 				From:        rn.node.ID,
 				To:          req.request.From,
 				Term:        rn.GetCurrentTerm(),
 				VoteGranted: false,
 			}
+
+			if req.request.Term < rn.GetCurrentTerm() {
+				replyMsg.VoteGranted = false
+			} else if req.request.Term > rn.GetCurrentTerm() {
+				replyMsg.VoteGranted = true
+			} else {
+				if rn.GetLog(rn.LastLogIndex()).Term > req.request.GetLastLogTerm() {
+					replyMsg.VoteGranted = false
+				} else {
+					if rn.GetLog(rn.LastLogIndex()).Term == req.request.GetLastLogTerm() && rn.LastLogIndex() <= req.request.LastLogIndex {
+						replyMsg.VoteGranted = true
+					}
+					if (rn.GetVotedFor() == req.request.From) && (rn.LastLogIndex() <= req.request.LastLogIndex) {
+						replyMsg.VoteGranted = true
+					}
+
+				}
+			}
+			req.reply <- replyMsg
+
 		case appendEntries := <-rn.appendEntriesC:
 			// Got AppendEntries RPC
 			// Become follower
