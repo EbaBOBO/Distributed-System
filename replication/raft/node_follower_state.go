@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"encoding/json"
 	"math/rand"
 	pb "modist/proto"
 	"time"
@@ -27,9 +28,10 @@ func (rn *RaftNode) doFollower() stateFunction {
 		case <-t.C:
 			// If election timeout elapses without receiving AppendEntries
 			// RPC from current leader or granting vote to candidate: convert to candidate
+			rn.log.Printf("election timeout, start new election")
 			return rn.doCandidate
 		case msg := <-rn.requestVoteC:
-			t.Reset(rn.electionTimeout)
+			t.Reset(timeout)
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Term > rn.GetCurrentTerm() {
@@ -37,7 +39,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 				return rn.doFollower
 			}
 		case msg := <-rn.appendEntriesC:
-			t.Reset(rn.electionTimeout)
+			t.Reset(timeout)
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Term > rn.GetCurrentTerm() {
@@ -49,6 +51,9 @@ func (rn *RaftNode) doFollower() stateFunction {
 			if !ok {
 				return nil
 			}
+			kv := RaftKVPair{}
+			json.Unmarshal(msg, &kv)
+			rn.log.Printf("leader received command: %v", kv)
 			conn := rn.node.PeerConns[rn.leader]
 			leader := pb.NewRaftRPCClient(conn)
 			ctx, cancel := context.WithCancel(context.Background())

@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"encoding/json"
 	pb "modist/proto"
 	"time"
 
@@ -51,8 +52,8 @@ func (rn *RaftNode) doLeader() stateFunction {
 				From:         rn.node.ID,
 				To:           nodeId,
 				Term:         rn.GetCurrentTerm(),
-				PrevLogIndex: rn.LastLogIndex() - 1,
-				PrevLogTerm:  rn.GetLog(rn.LastLogIndex() - 1).Term,
+				PrevLogIndex: rn.nextIndex[nodeId] - 1,
+				PrevLogTerm:  rn.GetLog(rn.nextIndex[nodeId] - 1).Term,
 				Entries:      nil,
 				LeaderCommit: rn.commitIndex,
 			}
@@ -81,12 +82,13 @@ func (rn *RaftNode) doLeader() stateFunction {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
 					remoteNode := pb.NewRaftRPCClient(conn)
+
 					msgReq := &pb.AppendEntriesRequest{
 						From:         rn.node.ID,
 						To:           nodeId,
 						Term:         rn.GetCurrentTerm(),
-						PrevLogIndex: rn.LastLogIndex() - 1,
-						PrevLogTerm:  rn.GetLog(rn.LastLogIndex() - 1).Term,
+						PrevLogIndex: rn.nextIndex[nodeId] - 1,
+						PrevLogTerm:  rn.GetLog(rn.nextIndex[nodeId] - 1).Term,
 						Entries:      []*pb.LogEntry{},
 						LeaderCommit: rn.commitIndex,
 					}
@@ -100,15 +102,20 @@ func (rn *RaftNode) doLeader() stateFunction {
 			}
 		// If command received from client: append entry to local log,
 		// respond after entry applied to state machine
-		case cmd := <-rn.proposeC:
+		case msg, ok := <-rn.proposeC:
+			if !ok {
+				return nil
+			}
 			entry := pb.LogEntry{
 				Index: rn.LastLogIndex() + 1,
 				Term:  rn.GetCurrentTerm(),
 				Type:  pb.EntryType_NORMAL,
-				Data:  cmd,
+				Data:  msg,
 			}
 			rn.StoreLog(&entry)
-
+			kv := RaftKVPair{}
+			json.Unmarshal(msg, &kv)
+			rn.log.Printf("leader received command: %v", kv)
 		case msg := <-rn.requestVoteC:
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
@@ -130,6 +137,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			}
 		default:
 			for k, v := range rn.nextIndex {
+				if k == rn.node.ID {
+					continue
+				}
 				// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
 				if rn.LastLogIndex() >= v {
 					go func(nodeId uint64, idx uint64) {
@@ -137,13 +147,18 @@ func (rn *RaftNode) doLeader() stateFunction {
 						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
 						remoteNode := pb.NewRaftRPCClient(conn)
+						entries := []*pb.LogEntry{}
+						lastEntryIdx := rn.LastLogIndex()
+						for i := rn.nextIndex[nodeId]; i <= lastEntryIdx; i++ {
+							entries = append(entries, rn.GetLog(i))
+						}
 						req := &pb.AppendEntriesRequest{
 							From:         rn.node.ID,
 							To:           nodeId,
 							Term:         rn.GetCurrentTerm(),
-							PrevLogIndex: rn.LastLogIndex() - 1,
-							PrevLogTerm:  rn.GetLog(rn.LastLogIndex() - 1).Term,
-							Entries:      []*pb.LogEntry{rn.GetLog(idx)},
+							PrevLogIndex: rn.nextIndex[nodeId] - 1,
+							PrevLogTerm:  rn.GetLog(rn.nextIndex[nodeId] - 1).Term,
+							Entries:      entries,
 							LeaderCommit: rn.commitIndex,
 						}
 
@@ -154,12 +169,14 @@ func (rn *RaftNode) doLeader() stateFunction {
 						// Update nextIndex and matchIndex for the follower if successful
 						rn.leaderMu.Lock()
 						defer rn.leaderMu.Unlock()
+						rn.leaderMu.Lock()
 						if reply.Success {
-							rn.nextIndex[nodeId] += 1
-							rn.matchIndex[nodeId] += 1
+							rn.nextIndex[nodeId] += uint64(len(entries))
+							rn.matchIndex[nodeId] = lastEntryIdx
 						} else {
 							rn.nextIndex[nodeId] -= 1
 						}
+						rn.leaderMu.Unlock()
 						replyChan <- reply
 					}(k, v)
 
@@ -178,7 +195,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 						cnt++
 					}
 				}
-				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N).Term == rn.GetCurrentTerm() {
+				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 					rn.commitIndex = N
 					continue
 				} else {
@@ -193,5 +210,4 @@ func (rn *RaftNode) doLeader() stateFunction {
 		}
 
 	}
-	return nil
 }

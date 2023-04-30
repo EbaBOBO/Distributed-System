@@ -55,6 +55,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	}
 	votesToWin := int(len(rn.node.PeerConns) / 2)
 	votesCnt := 0
+	rn.log.Print(rn.GetCurrentTerm())
 	for {
 		select {
 		case <-t.C:
@@ -76,6 +77,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		case msg := <-rn.requestVoteC:
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
+			rn.log.Printf("requestVote term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
 			if msg.request.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
@@ -83,7 +85,9 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		case msg := <-rn.appendEntriesC:
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
-			if msg.request.Term > rn.GetCurrentTerm() {
+			rn.log.Printf("appendEntries term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
+			if msg.request.Term >= rn.GetCurrentTerm() {
+				rn.log.Printf("Change to follower state")
 				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
 			}
