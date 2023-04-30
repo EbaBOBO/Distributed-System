@@ -19,10 +19,17 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// possible channel.
 
 	rn.leader = rn.node.ID
+
+	// (Reinitialized after election)
+	// nextIndex[]
+	// for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
+	// matchIndex[]
+	// for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 	for k := range rn.node.PeerNodes {
 		rn.matchIndex[k] = 0
 		rn.nextIndex[k] = rn.LastLogIndex() + 1
 	}
+
 	// initial heartbeat
 	rn.StoreLog(&pb.LogEntry{
 		Term:  rn.GetCurrentTerm(),
@@ -30,7 +37,8 @@ func (rn *RaftNode) doLeader() stateFunction {
 		Type:  pb.EntryType_NORMAL,
 		Index: rn.LastLogIndex() + 1,
 	})
-
+	// send initial empty AppendEntries RPCs (heartbeat) to each server
+	replyChan := make(chan *pb.AppendEntriesReply)
 	for k, v := range rn.node.PeerConns {
 		if k == rn.node.ID {
 			continue
@@ -54,6 +62,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.log.Printf("AppendEntries error: %v", err)
 				return
 			}
+			replyChan <- reply
 		}(k, v)
 	}
 
@@ -62,6 +71,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	for {
 		select {
 		case <-t.C:
+			// repeat during idle periods to prevent election timeouts
 			for k, v := range rn.node.PeerConns {
 				if k == rn.node.ID {
 					continue
@@ -100,42 +110,28 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.StoreLog(&entry)
 
 		case msg := <-rn.requestVoteC:
-
-			if msg.request.Term < rn.GetCurrentTerm() {
-				rn.log.Printf("requestVoteC From %v, To %v, false", msg.request.From, msg.request.To)
-				reply := pb.RequestVoteReply{
-					From:        rn.node.ID,
-					To:          msg.request.From,
-					Term:        rn.GetCurrentTerm(),
-					VoteGranted: false,
-				}
-				msg.reply <- reply
-			}
-			if (rn.GetVotedFor() == None ||
-				rn.GetVotedFor() == msg.request.From) &&
-				rn.LastLogIndex() >= msg.request.LastLogIndex {
-				rn.log.Printf("requestVoteC From %v, To %v, true", msg.request.From, msg.request.To)
-				rn.setVotedFor(msg.request.From)
-				reply := pb.RequestVoteReply{
-					From:        rn.node.ID,
-					To:          msg.request.From,
-					Term:        rn.GetCurrentTerm(),
-					VoteGranted: true,
-				}
-				msg.reply <- reply
+			reply := handleRequestVote(rn, msg.request)
+			msg.reply <- reply
+			if msg.request.Term > rn.GetCurrentTerm() {
+				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
 			}
-		case appendEntry := <-rn.appendEntriesC:
-			if appendEntry.request.Term > rn.GetCurrentTerm() {
-				rn.SetCurrentTerm(appendEntry.request.Term)
-				rn.leader = appendEntry.request.From
+		case msg := <-rn.appendEntriesC:
+			reply := handleAppendEntries(rn, msg.request)
+			msg.reply <- reply
+			if msg.request.Term > rn.GetCurrentTerm() {
+				rn.SetCurrentTerm(msg.request.Term)
+				rn.leader = msg.request.From
+				return rn.doFollower
+			}
+		case msg := <-replyChan:
+			if msg.Term > rn.GetCurrentTerm() {
 				return rn.doFollower
 			}
 		default:
 			for k, v := range rn.nextIndex {
-				// last log index >= next index
+				// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
 				if rn.LastLogIndex() >= v {
-					// send appendEntries to peer
 					go func(nodeId uint64, idx uint64) {
 						conn := rn.node.PeerConns[nodeId]
 						ctx, cancel := context.WithCancel(context.Background())
@@ -150,7 +146,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 							Entries:      []*pb.LogEntry{rn.GetLog(idx)},
 							LeaderCommit: rn.commitIndex,
 						}
-						rn.log.Print(rn.GetLog(idx))
+
 						reply, err := remoteNode.AppendEntries(ctx, req)
 						if err != nil {
 							rn.log.Printf("AppendEntries error: %v", err)
@@ -164,6 +160,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 						} else {
 							rn.nextIndex[nodeId] -= 1
 						}
+						replyChan <- reply
 					}(k, v)
 
 				}
