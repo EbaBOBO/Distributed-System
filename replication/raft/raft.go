@@ -91,7 +91,6 @@ func Configure(args any) *State {
 			}
 			kv := RaftKVPair{}
 			json.Unmarshal(*bytes, &kv)
-			s.log.Printf("proposal commited, KV %v", kv)
 			s.mu.Lock()
 			s.store[kv.Key] = kv.Value
 			s.mu.Unlock()
@@ -103,6 +102,7 @@ func Configure(args any) *State {
 			if !ok {
 				s.log.Printf("no success channel for %s", kv.UUID)
 			} else {
+				s.log.Printf("proposal commited, KV %v", kv)
 				successChan <- "success"
 			}
 			s.log.Printf("store updated: %s -> %s", kv.Key, kv.Value)

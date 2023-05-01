@@ -43,8 +43,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	var higherTerm atomic.Bool
 	higherTerm.Store(false)
 	higherTermChan := make(chan uint64, 1)
-	var routingCnt atomic.Uint64
-	routingCnt.Store(0)
+
 	for k, v := range rn.node.PeerConns {
 		if k == rn.node.ID {
 			continue
@@ -129,6 +128,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 			// set commitIndex = N
 			N := rn.commitIndex
+			rn.log.Print(rn.nextIndex)
 			for {
 				N += 1
 				cnt := 0
@@ -144,6 +144,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 					break
 				}
 			}
+			rn.log.Print(N)
 			if rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
@@ -168,8 +169,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.log.Printf("leader received proposal: %v", kv)
 
 		case msg := <-rn.requestVoteC:
-
-			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, msg)
 			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
 			msg.reply <- reply
 			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, &reply)
@@ -177,15 +176,12 @@ func (rn *RaftNode) doLeader() stateFunction {
 				higherTermChan <- msg.request.Term
 			}
 		case msg := <-rn.appendEntriesC:
-
 			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
 			msg.reply <- reply
 			if msg.request.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
 				higherTermChan <- msg.request.Term
 			}
 		case msg := <-higherTermChan:
-			// rn.log.Printf("Panic: higher term %v, current: %v", msg, nodeCurrentTerm)
-			// panic("higher term")
 			rn.log.Printf("leader term %v received AppendEntries reply with higher term:%v", nodeCurrentTerm, msg)
 			rn.SetCurrentTerm(msg)
 			return rn.doFollower
