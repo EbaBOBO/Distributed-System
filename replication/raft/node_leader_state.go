@@ -156,7 +156,8 @@ func (rn *RaftNode) doLeader() stateFunction {
 					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 					// set commitIndex = N
 					N := rn.commitIndex
-					rn.log.Print(rn.nextIndex)
+					rn.log.Printf("matchIdx %v", rn.matchIndex)
+					rn.log.Printf("nextIdx %v", rn.nextIndex)
 					for {
 						N += 1
 						cnt := 0
