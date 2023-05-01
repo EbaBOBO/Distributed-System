@@ -45,6 +45,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				To:           nodeId,
 				Term:         nodeCurrentTerm,
 				LastLogIndex: rn.LastLogIndex(),
+				LastLogTerm:  rn.GetLog(rn.LastLogIndex()).Term,
 			}
 			reply, err := remoteNode.RequestVote(ctx, msgReq)
 			if err != nil {
