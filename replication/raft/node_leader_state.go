@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	pb "modist/proto"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -11,7 +12,8 @@ import (
 
 // doLeader implements the logic for a Raft node in the leader state.
 func (rn *RaftNode) doLeader() stateFunction {
-	rn.log.Printf("+++++++++++++++++++++++++transitioning to leader state at term %d+++++++++++++++++++++++++", rn.GetCurrentTerm())
+	nodeCurrentTerm := rn.GetCurrentTerm()
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to leader state at term %d+++++++++++++++++++++++++", nodeCurrentTerm)
 	rn.state = LeaderState
 
 	// TODO(students): [Raft] Implement me!
@@ -20,7 +22,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// possible channel.
 
 	rn.leader = rn.node.ID
-
 	// (Reinitialized after election)
 	// nextIndex[]
 	// for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
@@ -33,13 +34,17 @@ func (rn *RaftNode) doLeader() stateFunction {
 
 	// initial heartbeat
 	rn.StoreLog(&pb.LogEntry{
-		Term:  rn.GetCurrentTerm(),
+		Term:  nodeCurrentTerm,
 		Data:  nil,
 		Type:  pb.EntryType_NORMAL,
 		Index: rn.LastLogIndex() + 1,
 	})
 	// send initial empty AppendEntries RPCs (heartbeat) to each server
-	replyChan := make(chan *pb.AppendEntriesReply)
+	var higherTerm atomic.Bool
+	higherTerm.Store(false)
+	higherTermChan := make(chan uint64, 1)
+	var routingCnt atomic.Uint64
+	routingCnt.Store(0)
 	for k, v := range rn.node.PeerConns {
 		if k == rn.node.ID {
 			continue
@@ -48,12 +53,13 @@ func (rn *RaftNode) doLeader() stateFunction {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			remoteNode := pb.NewRaftRPCClient(conn)
+			prevIdx := rn.nextIndex[nodeId] - 1
 			msgReq := &pb.AppendEntriesRequest{
 				From:         rn.node.ID,
 				To:           nodeId,
-				Term:         rn.GetCurrentTerm(),
-				PrevLogIndex: rn.nextIndex[nodeId] - 1,
-				PrevLogTerm:  rn.GetLog(rn.nextIndex[nodeId] - 1).Term,
+				Term:         nodeCurrentTerm,
+				PrevLogIndex: prevIdx,
+				PrevLogTerm:  rn.GetLog(prevIdx).Term,
 				Entries:      nil,
 				LeaderCommit: rn.commitIndex,
 			}
@@ -63,7 +69,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.log.Printf("AppendEntries error: %v", err)
 				return
 			}
-			replyChan <- reply
+			if reply.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
+				higherTermChan <- reply.Term
+			}
 		}(k, v)
 	}
 
@@ -73,116 +81,50 @@ func (rn *RaftNode) doLeader() stateFunction {
 		select {
 		case <-t.C:
 			// repeat during idle periods to prevent election timeouts
-			for k, v := range rn.node.PeerConns {
-				if k == rn.node.ID {
-					continue
-				}
-				go func(nodeId uint64, conn *grpc.ClientConn) {
-					rn.log.Printf("leader sent heartbeat to %v", nodeId)
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
-					remoteNode := pb.NewRaftRPCClient(conn)
-
-					msgReq := &pb.AppendEntriesRequest{
-						From:         rn.node.ID,
-						To:           nodeId,
-						Term:         rn.GetCurrentTerm(),
-						PrevLogIndex: rn.nextIndex[nodeId] - 1,
-						PrevLogTerm:  rn.GetLog(rn.nextIndex[nodeId] - 1).Term,
-						Entries:      []*pb.LogEntry{},
-						LeaderCommit: rn.commitIndex,
-					}
-					reply, err := remoteNode.AppendEntries(ctx, msgReq)
-					rn.log.Printf("AppendEntries reply from leader: %v", reply)
-					if err != nil {
-						rn.log.Printf("AppendEntries error: %v", err)
-						return
-					}
-				}(k, v)
-			}
-		// If command received from client: append entry to local log,
-		// respond after entry applied to state machine
-		case msg, ok := <-rn.proposeC:
-			if !ok {
-				return nil
-			}
-			entry := pb.LogEntry{
-				Index: rn.LastLogIndex() + 1,
-				Term:  rn.GetCurrentTerm(),
-				Type:  pb.EntryType_NORMAL,
-				Data:  msg,
-			}
-			rn.StoreLog(&entry)
-			kv := RaftKVPair{}
-			json.Unmarshal(msg, &kv)
-			rn.log.Printf("leader received command: %v", kv)
-		case msg := <-rn.requestVoteC:
-			reply := handleRequestVote(rn, msg.request)
-			msg.reply <- reply
-			if msg.request.Term > rn.GetCurrentTerm() {
-				rn.SetCurrentTerm(msg.request.Term)
-				return rn.doFollower
-			}
-		case msg := <-rn.appendEntriesC:
-			reply := handleAppendEntries(rn, msg.request)
-			msg.reply <- reply
-			if msg.request.Term > rn.GetCurrentTerm() {
-				rn.SetCurrentTerm(msg.request.Term)
-				rn.leader = msg.request.From
-				return rn.doFollower
-			}
-		case msg := <-replyChan:
-			if msg.Term > rn.GetCurrentTerm() {
-				return rn.doFollower
-			}
-		default:
 			for k, v := range rn.nextIndex {
 				if k == rn.node.ID {
 					continue
 				}
+				lastIdx := rn.LastLogIndex()
 				// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
-				if rn.LastLogIndex() >= v {
-					go func(nodeId uint64, idx uint64) {
-						conn := rn.node.PeerConns[nodeId]
-						ctx, cancel := context.WithCancel(context.Background())
-						defer cancel()
-						remoteNode := pb.NewRaftRPCClient(conn)
-						entries := []*pb.LogEntry{}
-						lastEntryIdx := rn.LastLogIndex()
-						for i := rn.nextIndex[nodeId]; i <= lastEntryIdx; i++ {
-							entries = append(entries, rn.GetLog(i))
-						}
-						req := &pb.AppendEntriesRequest{
-							From:         rn.node.ID,
-							To:           nodeId,
-							Term:         rn.GetCurrentTerm(),
-							PrevLogIndex: rn.nextIndex[nodeId] - 1,
-							PrevLogTerm:  rn.GetLog(rn.nextIndex[nodeId] - 1).Term,
-							Entries:      entries,
-							LeaderCommit: rn.commitIndex,
-						}
-
-						reply, err := remoteNode.AppendEntries(ctx, req)
-						if err != nil {
-							rn.log.Printf("AppendEntries error: %v", err)
-						}
-						// Update nextIndex and matchIndex for the follower if successful
-						rn.leaderMu.Lock()
-						defer rn.leaderMu.Unlock()
-						rn.leaderMu.Lock()
-						if reply.Success {
-							rn.nextIndex[nodeId] += uint64(len(entries))
-							rn.matchIndex[nodeId] = lastEntryIdx
-						} else {
-							rn.nextIndex[nodeId] -= 1
-						}
-						rn.leaderMu.Unlock()
-						replyChan <- reply
-					}(k, v)
-
-				}
+				go func(nodeId uint64, nextIdx uint64, lastEntryIdx uint64) {
+					entries := []*pb.LogEntry{}
+					for i := nextIdx; i <= lastEntryIdx; i++ {
+						rn.log.Printf("leader sent new entries to %v: %v", nodeId, rn.GetLog(i))
+						entries = append(entries, rn.GetLog(i))
+					}
+					req := &pb.AppendEntriesRequest{
+						From:         rn.node.ID,
+						To:           nodeId,
+						Term:         nodeCurrentTerm,
+						PrevLogIndex: nextIdx - 1,
+						PrevLogTerm:  rn.GetLog(nextIdx - 1).Term,
+						Entries:      entries,
+						LeaderCommit: rn.commitIndex,
+					}
+					conn := rn.node.PeerConns[nodeId]
+					ctx, cancel := context.WithCancel(context.Background())
+					defer cancel()
+					remoteNode := pb.NewRaftRPCClient(conn)
+					reply, err := remoteNode.AppendEntries(ctx, req)
+					if err != nil {
+						rn.log.Printf("AppendEntries error: %v", err)
+					}
+					// Update nextIndex and matchIndex for the follower if successful
+					rn.leaderMu.Lock()
+					defer rn.leaderMu.Unlock()
+					if reply.Success {
+						rn.log.Printf("nextIndex add to %v with %v, lastEntryIdx %v", nodeId, len(entries), lastEntryIdx)
+						rn.nextIndex[nodeId] += uint64(len(entries))
+						rn.matchIndex[nodeId] = lastEntryIdx
+					} else {
+						rn.nextIndex[nodeId] -= 1
+					}
+					if reply.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
+						higherTermChan <- reply.Term
+					}
+				}(k, v, lastIdx)
 			}
-
 			// If there exists an N such that N > commitIndex, a majority
 			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 			// set commitIndex = N
@@ -195,18 +137,58 @@ func (rn *RaftNode) doLeader() stateFunction {
 						cnt++
 					}
 				}
-				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
+				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == nodeCurrentTerm {
 					rn.commitIndex = N
 					continue
 				} else {
 					break
 				}
 			}
-
 			if rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
+
+		// If command received from client: append entry to local log,
+		// respond after entry applied to state machine
+		case msg, ok := <-rn.proposeC:
+
+			if !ok {
+				return nil
+			}
+			entry := pb.LogEntry{
+				Index: rn.LastLogIndex() + 1,
+				Term:  nodeCurrentTerm,
+				Type:  pb.EntryType_NORMAL,
+				Data:  msg,
+			}
+			rn.StoreLog(&entry)
+			kv := RaftKVPair{}
+			json.Unmarshal(msg, &kv)
+			rn.log.Printf("leader received proposal: %v", kv)
+
+		case msg := <-rn.requestVoteC:
+
+			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, msg)
+			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
+			msg.reply <- reply
+			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, &reply)
+			if msg.request.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
+				higherTermChan <- msg.request.Term
+			}
+		case msg := <-rn.appendEntriesC:
+
+			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
+			msg.reply <- reply
+			if msg.request.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
+				higherTermChan <- msg.request.Term
+			}
+		case msg := <-higherTermChan:
+			// rn.log.Printf("Panic: higher term %v, current: %v", msg, nodeCurrentTerm)
+			// panic("higher term")
+			rn.log.Printf("leader term %v received AppendEntries reply with higher term:%v", nodeCurrentTerm, msg)
+			rn.SetCurrentTerm(msg)
+			return rn.doFollower
 		}
 
 	}

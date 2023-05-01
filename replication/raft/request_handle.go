@@ -2,30 +2,27 @@ package raft
 
 import pb "modist/proto"
 
-func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.AppendEntriesReply {
-	rn.log.Printf("AppendEntries from %v", appendReq.From)
+func handleAppendEntries(rn *RaftNode, nodeCurrentTerm uint64, appendReq *pb.AppendEntriesRequest) pb.AppendEntriesReply {
+	// rn.log.Printf("AppendEntries from %v, term: %v, node term: %v", appendReq.From, appendReq.Term, nodeCurrentTerm)
 
-	rn.leader = appendReq.From
-	// Reply false if term < currentTerm
-	if appendReq.Term < rn.GetCurrentTerm() {
+	// Reply false if term < nodeCurrentTerm
+	if appendReq.Term < nodeCurrentTerm {
 		return pb.AppendEntriesReply{
 			From:    rn.node.ID,
 			To:      appendReq.From,
-			Term:    rn.GetCurrentTerm(),
+			Term:    nodeCurrentTerm,
 			Success: false,
 		}
 
 	}
-	if appendReq.Term > rn.GetCurrentTerm() {
-		rn.SetCurrentTerm(appendReq.Term)
-	}
+	rn.leader = appendReq.From
 	// Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm
 	if l := rn.GetLog(appendReq.PrevLogIndex); l == nil || l.Term != appendReq.PrevLogTerm {
 		return pb.AppendEntriesReply{
 			From:    rn.node.ID,
 			To:      appendReq.From,
-			Term:    rn.GetCurrentTerm(),
+			Term:    nodeCurrentTerm,
 			Success: false,
 		}
 
@@ -53,19 +50,19 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 	return pb.AppendEntriesReply{
 		From:    rn.node.ID,
 		To:      appendReq.From,
-		Term:    rn.GetCurrentTerm(),
+		Term:    nodeCurrentTerm,
 		Success: true,
 	}
 }
 
-func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestVoteReply {
-	// Reply false if term < currentTerm
-	if voteReq.Term < rn.GetCurrentTerm() {
+func handleRequestVote(rn *RaftNode, nodeCurrentTerm uint64, voteReq *pb.RequestVoteRequest) pb.RequestVoteReply {
+	// Reply false if term < nodeCurrentTerm
+	if voteReq.Term < nodeCurrentTerm {
 		rn.log.Printf("requestVoteC From %v, To %v, term %v, false", voteReq.From, voteReq.To, voteReq.Term)
 		return pb.RequestVoteReply{
 			From:        rn.node.ID,
 			To:          voteReq.From,
-			Term:        rn.GetCurrentTerm(),
+			Term:        nodeCurrentTerm,
 			VoteGranted: false,
 		}
 	}
@@ -77,14 +74,14 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 		return pb.RequestVoteReply{
 			From:        rn.node.ID,
 			To:          voteReq.From,
-			Term:        rn.GetCurrentTerm(),
+			Term:        nodeCurrentTerm,
 			VoteGranted: true,
 		}
 	}
 	return pb.RequestVoteReply{
 		From:        rn.node.ID,
 		To:          voteReq.From,
-		Term:        rn.GetCurrentTerm(),
+		Term:        nodeCurrentTerm,
 		VoteGranted: false,
 	}
 }
