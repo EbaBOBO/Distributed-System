@@ -190,6 +190,8 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.log.Printf("leader received proposal: %v", msg)
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			if !ok {
+				rn.log.Printf("Stop")
+				rn.Stop()
 				return nil
 			}
 			entry := pb.LogEntry{

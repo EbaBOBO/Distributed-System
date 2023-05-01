@@ -410,3 +410,41 @@ func TestBasicStoreKVWithReplacement(t *testing.T) {
 		}
 	}
 }
+
+func TestStop(t *testing.T) {
+	addrs := generateRaftAddrs(5)
+	nodes := node.Create(addrs)
+
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
+
+	var replicators []*State
+	for _, node := range nodes {
+		config := &Config{
+			ElectionTimeout:  et,
+			HeartbeatTimeout: ht,
+			Storage:          NewMemoryStore(),
+		}
+
+		replicator := Configure(Args{
+			Node:   node,
+			Config: config,
+		})
+		replicators = append(replicators, replicator)
+	}
+
+	// Allow leader to be elected
+	time.Sleep(2 * et)
+
+	for _, replicator := range replicators {
+		close(replicator.proposeC)
+	}
+
+	time.Sleep(2 * et)
+	for _, replicator := range replicators {
+		_, ok := <-replicator.commitC
+		if ok {
+			t.Errorf("commitC should be closed")
+		}
+	}
+}

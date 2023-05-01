@@ -105,6 +105,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		case _, ok := <-rn.proposeC:
 			// Stop
 			if !ok {
+				rn.log.Printf("Stop")
 				rn.Stop()
 				return nil
 			}
