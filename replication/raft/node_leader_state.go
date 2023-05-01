@@ -45,6 +45,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	higherTermChan := make(chan uint64, 1)
 
 	for k, v := range rn.node.PeerConns {
+		lastEntryIdx := rn.LastLogIndex()
 		go func(nodeId uint64, conn *grpc.ClientConn) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -70,7 +71,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			defer rn.leaderMu.Unlock()
 			if reply.Success {
 				rn.nextIndex[nodeId] += 1
-				rn.matchIndex[nodeId] += 1
+				rn.matchIndex[nodeId] = lastEntryIdx
 			} else {
 				rn.nextIndex[nodeId] -= 1
 			}
