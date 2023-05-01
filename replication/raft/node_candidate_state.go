@@ -12,19 +12,24 @@ import (
 // doCandidate implements the logic for a Raft node in the candidate state.
 func (rn *RaftNode) doCandidate() stateFunction {
 	rn.state = CandidateState
-	rn.log.Printf("transitioning to %s state at term %d", rn.state, rn.GetCurrentTerm())
+	// Increment currentTrem
+	rn.SetCurrentTerm(rn.GetCurrentTerm() + 1)
+	nodeCurrentTerm := rn.GetCurrentTerm()
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, nodeCurrentTerm)
 
 	// TODO(students): [Raft] Implement me!
 	// Hint: perform any initial work, and then consider what a node in the
 	// candidate state should do when it receives an incoming message on every
 	// possible channel.
 
-	// Increment currentTerm
-	rn.SetCurrentTerm(rn.GetCurrentTerm() + 1)
 	// Vote for self
 	rn.setVotedFor(rn.node.ID)
 	// Set election timer
-	t := time.NewTicker(time.Duration(1+rand.Float64()) * rn.electionTimeout)
+	timeout := time.Duration(float64(rn.electionTimeout) * (1 + rand.Float64()))
+	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
+		panic("timeout is out of range")
+	}
+	t := time.NewTicker(timeout)
 	// Send RequestVoteRPCs to all other servers
 	replyChan := make(chan *pb.RequestVoteReply)
 	for k, v := range rn.node.PeerConns {
@@ -38,7 +43,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			msgReq := &pb.RequestVoteRequest{
 				From:         rn.node.ID,
 				To:           nodeId,
-				Term:         rn.GetCurrentTerm(),
+				Term:         nodeCurrentTerm,
 				LastLogIndex: rn.LastLogIndex(),
 			}
 			reply, err := remoteNode.RequestVote(ctx, msgReq)
@@ -49,122 +54,63 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			replyChan <- reply
 		}(k, v)
 	}
-	votesToWin := int(len(rn.node.PeerConns) / 2)
-	votesCnt := 0
+	majority := int(len(rn.node.PeerNodes)/2) + 1
+	votesToWin := majority - 1
+	votesToLose := majority
+	voteGrantedCnt := 0
+	voteRejectedCnt := 0
+	rn.log.Print(nodeCurrentTerm)
 	for {
-		if rn.commitIndex > rn.lastApplied {
-			rn.lastApplied++
-			rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-		}
 		select {
 		case <-t.C:
-			// Election timeout
-			rn.log.Printf("election timeout")
+			// If election timeout elapses: start new election
+			rn.log.Printf("Node %v: election timeout", rn.node.ID)
 			return rn.doCandidate
 		case reply := <-replyChan:
-			if reply.Term > rn.GetCurrentTerm() {
+			// If votes received from majority of servers: become leader
+			rn.log.Printf("Candidate %v: received reply from %v %v", rn.node.ID, reply.From, reply.VoteGranted)
+			if reply.Term > nodeCurrentTerm {
 				rn.SetCurrentTerm(reply.Term)
-
 				return rn.doFollower
 			}
 			if reply.VoteGranted {
-				votesCnt++
+				voteGrantedCnt++
+			} else {
+				voteRejectedCnt++
 			}
-			if votesCnt >= votesToWin {
+			if voteGrantedCnt >= votesToWin {
 				return rn.doLeader
 			}
-		case req := <-rn.requestVoteC:
-
-			replyMsg := pb.RequestVoteReply{
-				From:        rn.node.ID,
-				To:          req.request.From,
-				Term:        rn.GetCurrentTerm(),
-				VoteGranted: false,
+			if voteRejectedCnt >= votesToLose {
+				return rn.doFollower
 			}
-
-			if req.request.Term < rn.GetCurrentTerm() {
-				replyMsg.VoteGranted = false
-			} else if req.request.Term > rn.GetCurrentTerm() {
-				replyMsg.VoteGranted = true
-			} else {
-				if rn.GetLog(rn.LastLogIndex()).Term > req.request.GetLastLogTerm() {
-					replyMsg.VoteGranted = false
-				} else {
-					if rn.GetLog(rn.LastLogIndex()).Term == req.request.GetLastLogTerm() && rn.LastLogIndex() <= req.request.LastLogIndex {
-						replyMsg.VoteGranted = true
-					}
-					if (rn.GetVotedFor() == req.request.From) && (rn.LastLogIndex() <= req.request.LastLogIndex) {
-						replyMsg.VoteGranted = true
-					}
-
-				}
+		case msg := <-rn.requestVoteC:
+			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
+			msg.reply <- reply
+			rn.log.Printf("requestVote term: %v, current term: %v", msg.request.Term, nodeCurrentTerm)
+			if msg.request.Term > nodeCurrentTerm {
+				rn.SetCurrentTerm(msg.request.Term)
+				return rn.doFollower
 			}
-			req.reply <- replyMsg
-
-		case appendEntries := <-rn.appendEntriesC:
-			// Got AppendEntries RPC
-			// Become follower
-			req := appendEntries.request
-			replyChan := appendEntries.reply
-			if req.Term < rn.GetCurrentTerm() {
-				replyChan <- pb.AppendEntriesReply{
-					From:    rn.node.ID,
-					To:      req.From,
-					Term:    rn.GetCurrentTerm(),
-					Success: false,
-				}
+		case msg := <-rn.appendEntriesC:
+			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
+			msg.reply <- reply
+			rn.log.Printf("appendEntries term: %v, current term: %v", msg.request.Term, nodeCurrentTerm)
+			if msg.request.Term >= nodeCurrentTerm {
+				rn.log.Printf("Change to follower state")
+				rn.SetCurrentTerm(msg.request.Term)
+				return rn.doFollower
 			}
-			if req.Term > rn.GetCurrentTerm() {
-				rn.SetCurrentTerm(req.Term)
-			}
-			if l := rn.GetLog(req.PrevLogIndex); l == nil || l.Term != req.PrevLogTerm {
-				replyChan <- pb.AppendEntriesReply{
-					From:    rn.node.ID,
-					To:      req.From,
-					Term:    rn.GetCurrentTerm(),
-					Success: false,
-				}
-			}
-			startIdx := 0
-			for _, entry := range req.Entries {
-				idx, term := entry.Index, entry.Term
-				if curTerm := rn.GetLog(idx).Term; curTerm != term {
-					rn.TruncateLog(idx)
-					startIdx = int(idx)
-					break
-				}
-			}
-
-			//if l := rn.GetLog(req.PrevLogIndex + 1); l != nil && l.Term != req.Term {
-			//	rn.TruncateLog(req.PrevLogIndex + 1)
-			//}
-
-			for _, it := range req.Entries[startIdx:] {
-				rn.StoreLog(it)
-				rn.lastApplied++
-			}
-			// If leaderCommit > commitIndex, set commitIndex =
-			// min(leaderCommit, index of last new entry)
-			if req.LeaderCommit > rn.commitIndex {
-				if req.LeaderCommit <= rn.LastLogIndex() {
-					rn.commitIndex = req.LeaderCommit
-				} else {
-					rn.commitIndex = rn.LastLogIndex()
-				}
-			}
-			replyChan <- pb.AppendEntriesReply{
-				From:    rn.node.ID,
-				To:      req.From,
-				Term:    rn.GetCurrentTerm(),
-				Success: true,
-			}
-			rn.leader = req.From
-			return rn.doFollower
 		case _, ok := <-rn.proposeC:
 			// Stop
 			if !ok {
 				rn.Stop()
 				return nil
+			}
+		default:
+			if rn.commitIndex > rn.lastApplied {
+				rn.lastApplied++
+				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
 		}
 	}

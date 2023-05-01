@@ -82,6 +82,7 @@ func Configure(args any) *State {
 
 	// TODO(students): [Raft] Call helper functions if needed
 	go func() {
+		s.log.Printf("starting commit channel listener on node %v", node.ID)
 		for {
 			bytes, ok := <-s.commitC
 			if !ok {
@@ -101,6 +102,7 @@ func Configure(args any) *State {
 			if !ok {
 				s.log.Printf("no success channel for %s", kv.UUID)
 			} else {
+				s.log.Printf("proposal commited, KV %v", kv)
 				successChan <- "success"
 			}
 			s.log.Printf("store updated: %s -> %s", kv.Key, kv.Value)

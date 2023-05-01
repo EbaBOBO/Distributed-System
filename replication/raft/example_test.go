@@ -341,3 +341,72 @@ func TestBasicStoreKV(t *testing.T) {
 		}
 	}
 }
+
+// Test KV replacement
+func TestBasicStoreKVWithReplacement(t *testing.T) {
+	addrs := generateRaftAddrs(5)
+	nodes := node.Create(addrs)
+
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
+
+	var replicators []*State
+	for _, node := range nodes {
+		config := &Config{
+			ElectionTimeout:  et,
+			HeartbeatTimeout: ht,
+			Storage:          NewMemoryStore(),
+		}
+
+		replicator := Configure(Args{
+			Node:   node,
+			Config: config,
+		})
+		replicators = append(replicators, replicator)
+	}
+
+	// Allow leader to be elected
+	time.Sleep(2 * et)
+
+	store := make(map[string]string)
+
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprint(i)
+		val := fmt.Sprintf("val is %d", 7*i)
+
+		store[key] = val
+		replicateRandomly(t, replicators, key, val)
+	}
+
+	// Sleep to allow last log time to replicate
+	time.Sleep(2 * ht)
+
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprint(i)
+		val := getReplicatedKeyRandomly(t, replicators, key)
+
+		if val != store[key] {
+			t.Errorf("val = %v, want %v", val, store[key])
+		}
+	}
+
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprint(i)
+		val := fmt.Sprintf("val is %d", 10*i)
+
+		store[key] = val
+		replicateRandomly(t, replicators, key, val)
+	}
+
+	// Sleep to allow last log time to replicate
+	time.Sleep(2 * ht)
+
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprint(i)
+		val := getReplicatedKeyRandomly(t, replicators, key)
+
+		if val != store[key] {
+			t.Errorf("val = %v, want %v", val, store[key])
+		}
+	}
+}
