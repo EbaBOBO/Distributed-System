@@ -45,9 +45,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 	higherTermChan := make(chan uint64, 1)
 
 	for k, v := range rn.node.PeerConns {
-		if k == rn.node.ID {
-			continue
-		}
 		go func(nodeId uint64, conn *grpc.ClientConn) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -114,9 +111,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 		case <-t.C:
 			// repeat during idle periods to prevent election timeouts
 			for k, v := range rn.nextIndex {
-				if k == rn.node.ID {
-					continue
-				}
 				lastIdx := rn.LastLogIndex()
 				// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
 				go func(nodeId uint64, nextIdx uint64, lastEntryIdx uint64) {
