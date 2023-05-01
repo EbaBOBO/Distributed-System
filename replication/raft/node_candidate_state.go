@@ -55,7 +55,8 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		}(k, v)
 	}
 	votesToWin := int(len(rn.node.PeerConns) / 2)
-	votesCnt := 0
+	voteGrantedCnt := 0
+	voteRejectedCnt := 0
 	rn.log.Print(nodeCurrentTerm)
 	for {
 		select {
@@ -71,10 +72,15 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				return rn.doFollower
 			}
 			if reply.VoteGranted {
-				votesCnt++
+				voteGrantedCnt++
+			} else {
+				voteRejectedCnt++
 			}
-			if votesCnt >= votesToWin {
+			if voteGrantedCnt >= votesToWin {
 				return rn.doLeader
+			}
+			if voteRejectedCnt >= votesToWin {
+				return rn.doFollower
 			}
 		case msg := <-rn.requestVoteC:
 			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
