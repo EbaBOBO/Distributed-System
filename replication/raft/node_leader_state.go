@@ -68,6 +68,39 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.log.Printf("AppendEntries error: %v", err)
 				return
 			}
+			// Update nextIndex and matchIndex for the follower if successful
+			rn.leaderMu.Lock()
+			defer rn.leaderMu.Unlock()
+			if reply.Success {
+				rn.nextIndex[nodeId] += 1
+				rn.matchIndex[nodeId] += 1
+			} else {
+				rn.nextIndex[nodeId] -= 1
+			}
+			// If there exists an N such that N > commitIndex, a majority
+			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
+			// set commitIndex = N
+			N := rn.commitIndex
+			rn.log.Print(rn.nextIndex)
+			for {
+				N += 1
+				cnt := 0
+				for _, v := range rn.matchIndex {
+					if v >= N {
+						cnt++
+					}
+				}
+				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == nodeCurrentTerm {
+					rn.commitIndex = N
+					continue
+				} else {
+					break
+				}
+			}
+			if rn.commitIndex > rn.lastApplied {
+				rn.lastApplied++
+				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
+			}
 			if reply.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
 				higherTermChan <- reply.Term
 			}
