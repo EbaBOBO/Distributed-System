@@ -11,8 +11,7 @@ import (
 // doFollower implements the logic for a Raft node in the follower state.
 func (rn *RaftNode) doFollower() stateFunction {
 	rn.state = FollowerState
-	nodeCurrentTerm := rn.GetCurrentTerm()
-	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, nodeCurrentTerm)
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, rn.GetCurrentTerm())
 
 	// TODO(students): [Raft] Implement me!
 	// Hint: perform any initial work, and then consider what a node in the
@@ -34,22 +33,22 @@ func (rn *RaftNode) doFollower() stateFunction {
 			return rn.doCandidate
 		case msg := <-rn.requestVoteC:
 			t.Reset(timeout)
-			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
+			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
-			if msg.request.Term > nodeCurrentTerm {
+			if msg.request.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
 			}
 		case msg := <-rn.appendEntriesC:
 			t.Reset(timeout)
-			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
+			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Entries != nil && len(msg.request.Entries[0].Data) > 0 {
 				kv := RaftKVPair{}
 				json.Unmarshal(msg.request.Entries[0].Data, &kv)
 				rn.log.Printf("follower received appendEntries %v, reply %v", kv, reply.Success)
 			}
-			if msg.request.Term > nodeCurrentTerm {
+			if msg.request.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(msg.request.Term)
 				rn.leader = msg.request.From
 				return rn.doFollower

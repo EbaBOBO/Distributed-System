@@ -14,8 +14,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	rn.state = CandidateState
 	// Increment currentTrem
 	rn.SetCurrentTerm(rn.GetCurrentTerm() + 1)
-	nodeCurrentTerm := rn.GetCurrentTerm()
-	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, nodeCurrentTerm)
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, rn.GetCurrentTerm())
 
 	// TODO(students): [Raft] Implement me!
 	// Hint: perform any initial work, and then consider what a node in the
@@ -43,7 +42,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			msgReq := &pb.RequestVoteRequest{
 				From:         rn.node.ID,
 				To:           nodeId,
-				Term:         nodeCurrentTerm,
+				Term:         rn.GetCurrentTerm(),
 				LastLogIndex: rn.LastLogIndex(),
 				LastLogTerm:  rn.GetLog(rn.LastLogIndex()).Term,
 			}
@@ -60,7 +59,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	votesToLose := majority
 	voteGrantedCnt := 0
 	voteRejectedCnt := 0
-	rn.log.Print(nodeCurrentTerm)
+	rn.log.Print(rn.GetCurrentTerm())
 	for {
 		select {
 		case <-t.C:
@@ -70,7 +69,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		case reply := <-replyChan:
 			// If votes received from majority of servers: become leader
 			rn.log.Printf("Candidate %v: received reply from %v %v", rn.node.ID, reply.From, reply.VoteGranted)
-			if reply.Term > nodeCurrentTerm {
+			if reply.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(reply.Term)
 				return rn.doFollower
 			}
@@ -86,18 +85,18 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				return rn.doFollower
 			}
 		case msg := <-rn.requestVoteC:
-			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
+			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
-			rn.log.Printf("requestVote term: %v, current term: %v", msg.request.Term, nodeCurrentTerm)
-			if msg.request.Term > nodeCurrentTerm {
+			rn.log.Printf("requestVote term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
+			if msg.request.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
 			}
 		case msg := <-rn.appendEntriesC:
-			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
+			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
-			rn.log.Printf("appendEntries term: %v, current term: %v", msg.request.Term, nodeCurrentTerm)
-			if msg.request.Term >= nodeCurrentTerm {
+			rn.log.Printf("appendEntries term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
+			if msg.request.Term >= rn.GetCurrentTerm() {
 				rn.log.Printf("Change to follower state")
 				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
