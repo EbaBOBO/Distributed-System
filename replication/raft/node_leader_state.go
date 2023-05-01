@@ -121,6 +121,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 						rn.log.Printf("leader sent new entries to %v: %v", nodeId, rn.GetLog(i))
 						entries = append(entries, rn.GetLog(i))
 					}
+					if rn.GetLog(nextIdx-1) == nil {
+						panic("nextIdx - 1 is nil")
+					}
 					req := &pb.AppendEntriesRequest{
 						From:         rn.node.ID,
 						To:           nodeId,

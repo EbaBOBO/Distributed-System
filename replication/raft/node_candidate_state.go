@@ -54,7 +54,9 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			replyChan <- reply
 		}(k, v)
 	}
-	votesToWin := int(len(rn.node.PeerConns) / 2)
+	majority := int(len(rn.node.PeerNodes)/2) + 1
+	votesToWin := majority - 1
+	votesToLose := majority
 	voteGrantedCnt := 0
 	voteRejectedCnt := 0
 	rn.log.Print(nodeCurrentTerm)
@@ -79,7 +81,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			if voteGrantedCnt >= votesToWin {
 				return rn.doLeader
 			}
-			if voteRejectedCnt >= votesToWin {
+			if voteRejectedCnt >= votesToLose {
 				return rn.doFollower
 			}
 		case msg := <-rn.requestVoteC:
