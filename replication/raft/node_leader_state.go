@@ -119,35 +119,34 @@ func (rn *RaftNode) doLeader() stateFunction {
 					} else {
 						rn.nextIndex[nodeId] -= 1
 					}
+					// If there exists an N such that N > commitIndex, a majority
+					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
+					// set commitIndex = N
+					N := rn.commitIndex
+					rn.log.Print(rn.nextIndex)
+					for {
+						N += 1
+						cnt := 0
+						for _, v := range rn.matchIndex {
+							if v >= N {
+								cnt++
+							}
+						}
+						if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == nodeCurrentTerm {
+							rn.commitIndex = N
+							continue
+						} else {
+							break
+						}
+					}
+					if rn.commitIndex > rn.lastApplied {
+						rn.lastApplied++
+						rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
+					}
 					if reply.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
 						higherTermChan <- reply.Term
 					}
 				}(k, v, lastIdx)
-			}
-			// If there exists an N such that N > commitIndex, a majority
-			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
-			// set commitIndex = N
-			N := rn.commitIndex
-			rn.log.Print(rn.nextIndex)
-			for {
-				N += 1
-				cnt := 0
-				for _, v := range rn.matchIndex {
-					if v >= N {
-						cnt++
-					}
-				}
-				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == nodeCurrentTerm {
-					rn.commitIndex = N
-					continue
-				} else {
-					break
-				}
-			}
-			rn.log.Print(N)
-			if rn.commitIndex > rn.lastApplied {
-				rn.lastApplied++
-				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
 
 		// If command received from client: append entry to local log,
