@@ -102,7 +102,7 @@ func Configure(args any) *State {
 			if !ok {
 				s.log.Printf("no success channel for %s", kv.UUID)
 			} else {
-				s.log.Printf("proposal commited, KV %v", kv)
+				s.log.Printf("proposal committed, KV %v", kv)
 				successChan <- "success"
 			}
 			s.log.Printf("store updated: %s -> %s", kv.Key, kv.Value)

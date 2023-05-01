@@ -44,6 +44,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 			t.Reset(timeout)
 			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
 			msg.reply <- reply
+			rn.log.Printf("current leader is %d\n", rn.leader)
 			if msg.request.Entries != nil && len(msg.request.Entries[0].Data) > 0 {
 				kv := RaftKVPair{}
 				json.Unmarshal(msg.request.Entries[0].Data, &kv)

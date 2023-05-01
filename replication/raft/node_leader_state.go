@@ -117,9 +117,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			// repeat during idle periods to prevent election timeouts
 			for k, v := range rn.nextIndex {
 				lastIdx := rn.LastLogIndex()
-				if v-1 > rn.LastLogIndex() {
-					panic("sss")
-				}
+				//if v-1 > rn.LastLogIndex() {
+				//	panic("sss")
+				//}
 				// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
 				go func(nodeId uint64, nextIdx uint64, lastEntryIdx uint64) {
 					entries := []*pb.LogEntry{}
@@ -205,6 +205,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 				Data:  msg,
 			}
 			rn.StoreLog(&entry)
+			rn.log.Printf("after store the last log index is %d\n", rn.LastLogIndex())
 			kv := RaftKVPair{}
 			json.Unmarshal(msg, &kv)
 
