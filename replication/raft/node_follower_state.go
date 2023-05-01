@@ -18,7 +18,8 @@ func (rn *RaftNode) doFollower() stateFunction {
 	// Hint: perform any initial work, and then consider what a node in the
 	// follower state should do when it receives an incoming message on every
 	// possible channel.
-	timeout := time.Duration(1+rand.Float64()) * rn.electionTimeout
+	timeout := time.Duration(float64(rn.electionTimeout) * (1 + rand.Float64()))
+	rn.log.Printf("follower start election timeout, timeout %v", timeout)
 	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
 		panic("timeout is out of range")
 	}

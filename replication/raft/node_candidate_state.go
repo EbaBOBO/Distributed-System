@@ -25,7 +25,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	// Vote for self
 	rn.setVotedFor(rn.node.ID)
 	// Set election timer
-	timeout := time.Duration(1+rand.Float64()) * rn.electionTimeout
+	timeout := time.Duration(float64(rn.electionTimeout) * (1 + rand.Float64()))
 	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
 		panic("timeout is out of range")
 	}
@@ -65,7 +65,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			return rn.doCandidate
 		case reply := <-replyChan:
 			// If votes received from majority of servers: become leader
-			rn.log.Printf("Candidate %v: received reply from %v", rn.node.ID, reply)
+			rn.log.Printf("Candidate %v: received reply from %v %v", rn.node.ID, reply.From, reply.VoteGranted)
 			if reply.Term > nodeCurrentTerm {
 				rn.SetCurrentTerm(reply.Term)
 				return rn.doFollower
