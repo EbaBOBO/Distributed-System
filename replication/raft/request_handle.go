@@ -30,9 +30,17 @@ func handleAppendEntries(rn *RaftNode, nodeCurrentTerm uint64, appendReq *pb.App
 	// If an existing entry conflicts with a new one (same index
 	// but different terms), delete the existing entry and all that
 	// follow it
-	if l := rn.GetLog(appendReq.PrevLogIndex + 1); (l != nil) && (l.Term != appendReq.Term) {
-		rn.TruncateLog(appendReq.PrevLogIndex + 1)
+	for _, newEntry := range appendReq.Entries {
+		idx, term := newEntry.Index, newEntry.Term
+		if prevEntry := rn.GetLog(idx); prevEntry != nil && prevEntry.Term != term {
+			rn.TruncateLog(idx)
+			break
+		}
 	}
+
+	//if l := rn.GetLog(appendReq.PrevLogIndex + 1); (l != nil) && (l.Term != appendReq.Term) {
+	//	rn.TruncateLog(appendReq.PrevLogIndex + 1)
+	//}
 	// Append any new entries not already in the log
 	for _, it := range appendReq.Entries {
 		rn.StoreLog(it)
@@ -70,12 +78,16 @@ func handleRequestVote(rn *RaftNode, nodeCurrentTerm uint64, voteReq *pb.Request
 	// least as up-to-date as receiver’s log, grant vote
 	if rn.GetVotedFor() == None || rn.GetVotedFor() == voteReq.From {
 		rn.log.Printf("requestVoteC From %v, To %v, term  %v, true", voteReq.From, voteReq.To, voteReq.Term)
-		rn.setVotedFor(voteReq.From)
-		return pb.RequestVoteReply{
-			From:        rn.node.ID,
-			To:          voteReq.From,
-			Term:        nodeCurrentTerm,
-			VoteGranted: true,
+		if voteReq.GetLastLogTerm() >= rn.GetLog(rn.LastLogIndex()).Term {
+			if voteReq.GetLastLogTerm() == rn.GetLog(rn.LastLogIndex()).Term && voteReq.GetLastLogIndex() >= rn.LastLogIndex() {
+				rn.setVotedFor(voteReq.From)
+				return pb.RequestVoteReply{
+					From:        rn.node.ID,
+					To:          voteReq.From,
+					Term:        nodeCurrentTerm,
+					VoteGranted: true,
+				}
+			}
 		}
 	}
 	return pb.RequestVoteReply{
