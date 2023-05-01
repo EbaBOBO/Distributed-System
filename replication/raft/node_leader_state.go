@@ -110,6 +110,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	for {
 		select {
 		case <-t.C:
+			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
 			// repeat during idle periods to prevent election timeouts
 			for k, v := range rn.nextIndex {
 				lastIdx := rn.LastLogIndex()
@@ -180,7 +181,8 @@ func (rn *RaftNode) doLeader() stateFunction {
 		// If command received from client: append entry to local log,
 		// respond after entry applied to state machine
 		case msg, ok := <-rn.proposeC:
-
+			rn.log.Printf("leader received proposal: %v", msg)
+			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			if !ok {
 				return nil
 			}
@@ -193,9 +195,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.StoreLog(&entry)
 			kv := RaftKVPair{}
 			json.Unmarshal(msg, &kv)
-			rn.log.Printf("leader received proposal: %v", kv)
 
 		case msg := <-rn.requestVoteC:
+			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, msg.request)
 			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
 			msg.reply <- reply
 			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, &reply)
@@ -203,6 +205,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 				higherTermChan <- msg.request.Term
 			}
 		case msg := <-rn.appendEntriesC:
+			rn.log.Printf("leader term %v received AppendEntries: %v", nodeCurrentTerm, msg.request)
 			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
 			msg.reply <- reply
 			if msg.request.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
