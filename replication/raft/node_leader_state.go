@@ -46,6 +46,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 
 	for k, v := range rn.node.PeerConns {
 		go func(nodeId uint64, conn *grpc.ClientConn) {
+			if rn.nextIndex[nodeId]-1 > rn.LastLogIndex() {
+				panic("")
+			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			remoteNode := pb.NewRaftRPCClient(conn)
@@ -114,6 +117,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			// repeat during idle periods to prevent election timeouts
 			for k, v := range rn.nextIndex {
 				lastIdx := rn.LastLogIndex()
+				if v-1 > rn.LastLogIndex() {
+					panic("sss")
+				}
 				// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
 				go func(nodeId uint64, nextIdx uint64, lastEntryIdx uint64) {
 					entries := []*pb.LogEntry{}
@@ -122,6 +128,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 						entries = append(entries, rn.GetLog(i))
 					}
 					if rn.GetLog(nextIdx-1) == nil {
+						rn.log.Printf("nextIdx %v commitIdx %v, lastLog %v", nextIdx, rn.commitIndex, rn.LastLogIndex())
 						panic("nextIdx - 1 is nil")
 					}
 					req := &pb.AppendEntriesRequest{
@@ -155,7 +162,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 					// set commitIndex = N
 					N := rn.commitIndex
-					rn.log.Print(rn.nextIndex)
+					rn.log.Printf("nextIdx %v", rn.nextIndex)
+					rn.log.Printf("matchIndex %v", rn.matchIndex)
+					rn.log.Printf("commitIdx %v", rn.commitIndex)
 					for {
 						N += 1
 						cnt := 0
