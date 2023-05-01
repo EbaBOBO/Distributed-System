@@ -141,6 +141,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 					reply, err := remoteNode.AppendEntries(ctx, req)
 					if err != nil {
 						rn.log.Printf("AppendEntries error: %v", err)
+						return
 					}
 					// Update nextIndex and matchIndex for the follower if successful
 					rn.leaderMu.Lock()
