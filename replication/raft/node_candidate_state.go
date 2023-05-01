@@ -125,10 +125,21 @@ func (rn *RaftNode) doCandidate() stateFunction {
 					Success: false,
 				}
 			}
-			if l := rn.GetLog(req.PrevLogIndex + 1); l != nil && l.Term != req.Term {
-				rn.TruncateLog(req.PrevLogIndex + 1)
+			startIdx := 0
+			for _, entry := range req.Entries {
+				idx, term := entry.Index, entry.Term
+				if curTerm := rn.GetLog(idx).Term; curTerm != term {
+					rn.TruncateLog(idx)
+					startIdx = int(idx)
+					break
+				}
 			}
-			for _, it := range req.Entries {
+
+			//if l := rn.GetLog(req.PrevLogIndex + 1); l != nil && l.Term != req.Term {
+			//	rn.TruncateLog(req.PrevLogIndex + 1)
+			//}
+
+			for _, it := range req.Entries[startIdx:] {
 				rn.StoreLog(it)
 				rn.lastApplied++
 			}
