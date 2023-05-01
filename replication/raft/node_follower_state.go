@@ -58,6 +58,10 @@ func (rn *RaftNode) doFollower() stateFunction {
 			if !ok {
 				return nil
 			}
+			if rn.leader == 0 {
+				rn.log.Printf("No leader, discard proposal")
+				continue
+			}
 			kv := RaftKVPair{}
 			json.Unmarshal(msg, &kv)
 			rn.log.Printf("follower received proposal, forward to %v: %v", kv, rn.leader)
