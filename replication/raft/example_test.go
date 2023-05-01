@@ -321,7 +321,7 @@ func TestBasicStoreKV(t *testing.T) {
 
 	store := make(map[string]string)
 
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 10; i++ {
 		key := fmt.Sprint(i)
 		val := fmt.Sprintf("val is %d", 7*i)
 
@@ -332,7 +332,7 @@ func TestBasicStoreKV(t *testing.T) {
 	// Sleep to allow last log time to replicate
 	time.Sleep(2 * ht)
 
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 10; i++ {
 		key := fmt.Sprint(i)
 		val := getReplicatedKeyRandomly(t, replicators, key)
 

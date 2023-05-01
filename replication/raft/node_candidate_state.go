@@ -72,6 +72,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			rn.log.Printf("Candidate %v: received reply from %v %v", rn.node.ID, reply.From, reply.VoteGranted)
 			if reply.Term > nodeCurrentTerm {
 				rn.SetCurrentTerm(reply.Term)
+				rn.setVotedFor(None)
 				return rn.doFollower
 			}
 			if reply.VoteGranted {

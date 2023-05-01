@@ -147,11 +147,11 @@ func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutRepl
 	s.successChans[kvUUID] = successChan
 	s.successChansMutex.Unlock()
 
-	defer func() {
-		s.successChansMutex.Lock()
-		delete(s.successChans, kvUUID)
-		s.successChansMutex.Unlock()
-	}()
+	//defer func() {
+	//	s.successChansMutex.Lock()
+	//	delete(s.successChans, kvUUID)
+	//	s.successChansMutex.Unlock()
+	//}()
 
 	s.proposeC <- bytes
 	t := time.NewTimer(RETRY_TIME)
