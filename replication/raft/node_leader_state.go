@@ -64,6 +64,10 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.log.Printf("AppendEntries error: %v", err)
 				return
 			}
+			if reply.Term > rn.GetCurrentTerm() {
+				higherTermChan <- reply.Term
+				return
+			}
 			// Update nextIndex and matchIndex for the follower if successful
 			rn.leaderMu.Lock()
 			defer rn.leaderMu.Unlock()
@@ -103,9 +107,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 					continue
 				}
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-			}
-			if reply.Term > rn.GetCurrentTerm() {
-				higherTermChan <- reply.Term
 			}
 		}(k, v)
 	}
@@ -149,6 +150,10 @@ func (rn *RaftNode) doLeader() stateFunction {
 					reply, err := remoteNode.AppendEntries(ctx, req)
 					if err != nil {
 						rn.log.Printf("AppendEntries error: %v", err)
+						return
+					}
+					if reply.Term > rn.GetCurrentTerm() {
+						higherTermChan <- reply.Term
 						return
 					}
 					// Update nextIndex and matchIndex for the follower if successful
