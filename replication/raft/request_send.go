@@ -11,6 +11,7 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 		if nd == rn.node.ID {
 			continue
 		}
+		rn.log.Printf("Leader send AppendEntries to %v, commitIdx %v, nextIdx %v, matchIdx %v", nd, rn.commitIndex, rn.nextIndex[nd], rn.matchIndex[nd])
 		// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
 		go func(nodeId uint64) {
 			rn.leaderMu.Lock()
