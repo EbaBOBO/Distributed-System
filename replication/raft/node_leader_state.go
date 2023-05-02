@@ -203,6 +203,8 @@ func (rn *RaftNode) doLeader() stateFunction {
 		case msg, ok := <-rn.proposeC:
 			rn.log.Printf("leader received proposal: %v", msg)
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
+			rn.log.Printf("nextIdx %v", rn.nextIndex)
+			rn.log.Printf("matchIdx %v", rn.matchIndex)
 			if !ok {
 				rn.log.Printf("Stop")
 				rn.Stop()
