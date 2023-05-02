@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"fmt"
 	pb "modist/proto"
 )
 
@@ -16,6 +17,9 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			nextIdx := rn.nextIndex[nodeId]
 			prevIdx := nextIdx - 1
 			lastEntryIdx := rn.LastLogIndex()
+			if prevIdx > lastEntryIdx {
+				panic("prevIdx > lastEntryIdx: " + fmt.Sprintf("%v %v", prevIdx, lastEntryIdx)))
+			}
 			rn.leaderMu.Unlock()
 			var req *pb.AppendEntriesRequest
 			entriesLength := 0
@@ -36,11 +40,6 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 				for i := nextIdx; i <= lastEntryIdx; i++ {
 					rn.log.Printf("leader sent new entries to %v: %v", nodeId, rn.GetLog(i))
 					entries = append(entries, rn.GetLog(i))
-				}
-				if rn.GetLog(prevIdx) == nil {
-					a := rn.LastLogIndex()
-					rn.log.Print(a)
-					panic("nextIdx - 1 is nil")
 				}
 				req = &pb.AppendEntriesRequest{
 					From:         rn.node.ID,
