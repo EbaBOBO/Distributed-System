@@ -3,9 +3,11 @@ package raft
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"modist/orchestrator/node"
 	pb "modist/proto"
+	"os"
 	"sort"
 	"sync"
 	"testing"
@@ -446,5 +448,31 @@ func TestStop(t *testing.T) {
 		if ok {
 			t.Errorf("commitC should be closed")
 		}
+	}
+}
+
+func TestBasicStoreKV2(t *testing.T) {
+	addrs := generateRaftAddrs(5)
+	nodes := node.Create(addrs)
+
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
+
+	var replicators []*State
+	for _, node := range nodes {
+		filename := fmt.Sprintf("log_%v.out", node.ID)
+		f, _ := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0666)
+		node.Log = log.New(f, "", 0)
+		config := &Config{
+			ElectionTimeout:  et,
+			HeartbeatTimeout: ht,
+			Storage:          NewMemoryStore(),
+		}
+
+		replicator := Configure(Args{
+			Node:   node,
+			Config: config,
+		})
+		replicators = append(replicators, replicator)
 	}
 }

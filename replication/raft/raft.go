@@ -163,11 +163,7 @@ func (s *State) ReplicateKey(ctx context.Context, r *pb.PutRequest) (*pb.PutRepl
 			// need to retry
 			s.proposeC <- bytes
 			retries.Add(1)
-<<<<<<< HEAD
 			//t.Reset(RETRY_TIME)
-=======
-			t.Reset(RETRY_TIME)
->>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 		case <-successChan:
 			// success
 			return &pb.PutReply{}, nil

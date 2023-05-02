@@ -42,21 +42,11 @@ func (rn *RaftNode) doLeader() stateFunction {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for k, v := range rn.node.PeerConns {
-<<<<<<< HEAD
-		lastEntryIdx := rn.LastLogIndex()
-		go func(nodeId uint64, conn *grpc.ClientConn) {
-			if rn.nextIndex[nodeId]-1 > rn.LastLogIndex() {
-				panic("")
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-=======
 		if k == rn.node.ID {
 			continue
 		}
 		lastEntryIdx := rn.LastLogIndex()
 		go func(nodeId uint64, conn *grpc.ClientConn) {
->>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 			remoteNode := pb.NewRaftRPCClient(conn)
 			prevIdx := rn.nextIndex[nodeId] - 1
 			msgReq := &pb.AppendEntriesRequest{
@@ -134,9 +124,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 					continue
 				}
 				lastIdx := rn.LastLogIndex()
-				//if v-1 > rn.LastLogIndex() {
-				//	panic("sss")
-				//}
 				// If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
 				go func(nodeId uint64, nextIdx uint64, lastEntryIdx uint64) {
 					entries := []*pb.LogEntry{}
@@ -145,7 +132,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 						entries = append(entries, rn.GetLog(i))
 					}
 					if rn.GetLog(nextIdx-1) == nil {
-						rn.log.Printf("nextIdx %v commitIdx %v, lastLog %v", nextIdx, rn.commitIndex, rn.LastLogIndex())
 						panic("nextIdx - 1 is nil")
 					}
 					req := &pb.AppendEntriesRequest{
@@ -165,13 +151,10 @@ func (rn *RaftNode) doLeader() stateFunction {
 					if err != nil {
 						rn.log.Printf("AppendEntries error: %v", err)
 						return
-<<<<<<< HEAD
-=======
 					}
 					if reply.Term > rn.GetCurrentTerm() {
 						higherTermChan <- reply.Term
 						return
->>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 					}
 					// Update nextIndex and matchIndex for the follower if successful
 					rn.leaderMu.Lock()
@@ -189,11 +172,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 					// set commitIndex = N
 					N := rn.commitIndex
 					rn.log.Printf("nextIdx %v", rn.nextIndex)
-<<<<<<< HEAD
-					rn.log.Printf("matchIndex %v", rn.matchIndex)
-=======
 					rn.log.Printf("matchIdx %v", rn.matchIndex)
->>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 					rn.log.Printf("commitIdx %v", rn.commitIndex)
 					for {
 						N += 1
@@ -243,7 +222,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 				Data:  msg,
 			}
 			rn.StoreLog(&entry)
-			rn.log.Printf("after store the last log index is %d\n", rn.LastLogIndex())
 			kv := RaftKVPair{}
 			json.Unmarshal(msg, &kv)
 

@@ -86,20 +86,6 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 	rn.SetCurrentTerm(voteReq.Term)
 	// 	If votedFor is null or candidateId, and candidate’s log is at
 	// least as up-to-date as receiver’s log, grant vote
-<<<<<<< HEAD
-	if rn.GetVotedFor() == None || rn.GetVotedFor() == voteReq.From {
-		rn.log.Printf("requestVoteC From %v, To %v, term  %v, true", voteReq.From, voteReq.To, voteReq.Term)
-		if voteReq.GetLastLogTerm() >= rn.GetLog(rn.LastLogIndex()).Term {
-			if voteReq.GetLastLogTerm() == rn.GetLog(rn.LastLogIndex()).Term && voteReq.GetLastLogIndex() >= rn.LastLogIndex() {
-				rn.setVotedFor(voteReq.From)
-				return pb.RequestVoteReply{
-					From:        rn.node.ID,
-					To:          voteReq.From,
-					Term:        nodeCurrentTerm,
-					VoteGranted: true,
-				}
-			}
-=======
 	if voteReq.LastLogTerm > rn.GetLog(rn.LastLogIndex()).Term {
 		rn.setVotedFor(voteReq.From)
 		return pb.RequestVoteReply{
@@ -107,7 +93,6 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 			To:          voteReq.From,
 			Term:        rn.GetCurrentTerm(),
 			VoteGranted: true,
->>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 		}
 	} else if voteReq.LastLogTerm == rn.GetLog(rn.LastLogIndex()).Term {
 		if voteReq.LastLogIndex < rn.LastLogIndex() {
