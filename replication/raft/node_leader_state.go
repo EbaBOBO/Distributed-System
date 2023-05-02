@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"encoding/json"
 	pb "modist/proto"
 	"time"
 )
@@ -49,15 +50,17 @@ func (rn *RaftNode) doLeader() stateFunction {
 		// If command received from client: append entry to local log,
 		// respond after entry applied to state machine
 		case msg, ok := <-rn.proposeC:
-			rn.log.Printf("leader received proposal: %v", msg)
-			rn.log.Printf("commitIdx %v", rn.commitIndex)
-			rn.log.Printf("nextIdx %v", rn.nextIndex)
-			rn.log.Printf("matchIdx %v", rn.matchIndex)
 			if !ok {
 				rn.log.Printf("Stop")
 				rn.Stop()
 				return nil
 			}
+			rkv := RaftKVPair{}
+			json.Unmarshal(msg, &rkv)
+			rn.log.Printf("leader received proposal: %v", rkv)
+			rn.log.Printf("commitIdx %v", rn.commitIndex)
+			rn.log.Printf("nextIdx %v", rn.nextIndex)
+			rn.log.Printf("matchIdx %v", rn.matchIndex)
 			entry := pb.LogEntry{
 				Index: rn.LastLogIndex() + 1,
 				Term:  rn.GetCurrentTerm(),
