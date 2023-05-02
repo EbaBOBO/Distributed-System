@@ -71,7 +71,7 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			defer rn.leaderMu.Unlock()
 			if reply.Success {
 				rn.log.Printf("nextIndex add to %v with %v, lastEntryIdx %v", nodeId, entriesLength, lastEntryIdx)
-				rn.nextIndex[nodeId] = lastEntryIdx + 1
+				rn.nextIndex[nodeId] = max(lastEntryIdx+1, rn.nextIndex[nodeId])
 				rn.matchIndex[nodeId] = lastEntryIdx
 			} else {
 				rn.nextIndex[nodeId] -= 1
@@ -109,4 +109,11 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			}
 		}(nd)
 	}
+}
+
+func max(a, b uint64) uint64 {
+	if a >= b {
+		return a
+	}
+	return b
 }
