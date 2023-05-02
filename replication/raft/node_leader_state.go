@@ -92,6 +92,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Term > rn.GetCurrentTerm() {
+				rn.leader = msg.request.From
 				higherTermChan <- msg.request.Term
 			}
 		case msg := <-higherTermChan:

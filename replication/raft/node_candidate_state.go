@@ -103,6 +103,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				rn.log.Printf("Change to follower state")
 				rn.SetCurrentTerm(msg.request.Term)
 				rn.setVotedFor(None)
+				rn.leader = msg.request.From
 				return rn.doFollower
 			}
 		case _, ok := <-rn.proposeC:
