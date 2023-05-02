@@ -39,15 +39,14 @@ func (rn *RaftNode) doLeader() stateFunction {
 	})
 	// send initial empty AppendEntries RPCs (heartbeat) to each server
 	higherTermChan := make(chan uint64, 1)
-
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for k, v := range rn.node.PeerConns {
 		if k == rn.node.ID {
 			continue
 		}
 		lastEntryIdx := rn.LastLogIndex()
 		go func(nodeId uint64, conn *grpc.ClientConn) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
 			remoteNode := pb.NewRaftRPCClient(conn)
 			prevIdx := rn.nextIndex[nodeId] - 1
 			msgReq := &pb.AppendEntriesRequest{
@@ -88,7 +87,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 						cnt++
 					}
 				}
-				if cnt >= ((len(rn.node.PeerNodes)/2)+1) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
+				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 					rn.commitIndex = N
 					continue
 				} else {
@@ -97,6 +96,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			}
 			for rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
+				if rn.GetLog(rn.lastApplied).Data == nil {
+					continue
+				}
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
 			if reply.Term > rn.GetCurrentTerm() {
@@ -176,7 +178,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 							break
 						}
 					}
-					for rn.commitIndex > rn.lastApplied {
+					if rn.commitIndex > rn.lastApplied {
 						rn.lastApplied++
 						rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 					}
@@ -212,8 +214,10 @@ func (rn *RaftNode) doLeader() stateFunction {
 			msg.reply <- reply
 			rn.log.Printf("leader term %v received requestVote: %v", rn.GetCurrentTerm(), &reply)
 			if reply.VoteGranted {
-				higherTermChan <- msg.request.Term
+				rn.SetCurrentTerm(msg.request.Term)
+				return rn.doFollower
 			}
+
 		case msg := <-rn.appendEntriesC:
 			rn.log.Printf("leader term %v received AppendEntries: %v", rn.GetCurrentTerm(), msg.request)
 			reply := handleAppendEntries(rn, msg.request)

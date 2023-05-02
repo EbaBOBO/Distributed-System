@@ -32,13 +32,13 @@ func (rn *RaftNode) doFollower() stateFunction {
 			rn.log.Printf("election timeout, start new election")
 			return rn.doCandidate
 		case msg := <-rn.requestVoteC:
-			t.Reset(timeout)
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
 			if reply.VoteGranted {
 				t.Reset(timeout)
 			}
 		case msg := <-rn.appendEntriesC:
+			// t.Reset(timeout)
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Entries != nil && len(msg.request.Entries[0].Data) > 0 {
@@ -48,6 +48,11 @@ func (rn *RaftNode) doFollower() stateFunction {
 			}
 			if msg.request.Term >= rn.GetCurrentTerm() {
 				t.Reset(timeout)
+			}
+			if msg.request.Term > rn.GetCurrentTerm() {
+				rn.SetCurrentTerm(msg.request.Term)
+				rn.leader = msg.request.From
+				return rn.doFollower
 			}
 		case msg, ok := <-rn.proposeC:
 			if !ok {
