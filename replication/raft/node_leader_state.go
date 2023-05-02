@@ -88,14 +88,14 @@ func (rn *RaftNode) doLeader() stateFunction {
 						cnt++
 					}
 				}
-				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
+				if cnt >= ((len(rn.node.PeerNodes)/2)+1) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 					rn.commitIndex = N
 					continue
 				} else {
 					break
 				}
 			}
-			if rn.commitIndex > rn.lastApplied {
+			for rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
@@ -176,7 +176,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 							break
 						}
 					}
-					if rn.commitIndex > rn.lastApplied {
+					for rn.commitIndex > rn.lastApplied {
 						rn.lastApplied++
 						rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 					}
