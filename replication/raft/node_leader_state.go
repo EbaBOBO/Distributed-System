@@ -113,6 +113,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	for {
 		select {
 		case <-t.C:
+			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
 			// repeat during idle periods to prevent election timeouts
 			for k, v := range rn.nextIndex {
@@ -163,8 +164,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 					// set commitIndex = N
 					N := rn.commitIndex
-					rn.log.Printf("matchIdx %v", rn.matchIndex)
 					rn.log.Printf("nextIdx %v", rn.nextIndex)
+					rn.log.Printf("matchIdx %v", rn.matchIndex)
+					rn.log.Printf("commitIdx %v", rn.commitIndex)
 					for {
 						N += 1
 						cnt := 0
@@ -180,6 +182,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 							break
 						}
 					}
+					rn.log.Printf("commitIdx after %v", rn.commitIndex)
 					for rn.commitIndex > rn.lastApplied {
 						rn.lastApplied++
 						if rn.GetLog(rn.lastApplied).Data == nil {
@@ -214,6 +217,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			json.Unmarshal(msg, &kv)
 
 		case msg := <-rn.requestVoteC:
+			rn.log.Printf("nextIdx %v", rn.nextIndex)
+			rn.log.Printf("matchIdx %v", rn.matchIndex)
+			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader term %v received requestVote: %v", rn.GetCurrentTerm(), msg.request)
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
