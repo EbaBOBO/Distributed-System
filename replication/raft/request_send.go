@@ -65,7 +65,7 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			}
 			// Update nextIndex and matchIndex for the follower if successful
 			rn.leaderMu.Lock()
-			defer rn.leaderMu.Unlock()
+
 			if rn.nextIndex[nodeId] < 1 {
 				panic("nextIndex < 1")
 			}
@@ -78,8 +78,10 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 				if rn.nextIndex[nodeId] > 1 {
 					rn.nextIndex[nodeId] -= 1
 				}
+				rn.leaderMu.Unlock()
 				return
 			}
+			rn.leaderMu.Unlock()
 			// If there exists an N such that N > commitIndex, a majority
 			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 			// set commitIndex = N
