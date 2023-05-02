@@ -96,7 +96,8 @@ func updateCommitIndex(rn *RaftNode) {
 	rn.log.Printf("nextIdx %v", rn.nextIndex)
 	rn.log.Printf("matchIdx %v", rn.matchIndex)
 	rn.log.Printf("commitIdx %v", rn.commitIndex)
-	for {
+	lastIdx := rn.LastLogIndex()
+	for N <= lastIdx {
 		N += 1
 		cnt := 0
 		for _, v := range rn.matchIndex {
@@ -106,9 +107,6 @@ func updateCommitIndex(rn *RaftNode) {
 		}
 		if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 			newIdx = N
-			continue
-		} else {
-			break
 		}
 	}
 	rn.commitIndex = newIdx
