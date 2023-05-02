@@ -12,7 +12,7 @@ import (
 func (rn *RaftNode) doFollower() stateFunction {
 	rn.state = FollowerState
 	rn.log.Printf("+++++++++++++++++++++++++transitioning to %s state at term %d+++++++++++++++++++++++++", rn.state, rn.GetCurrentTerm())
-
+	rn.setVotedFor(None)
 	// TODO(students): [Raft] Implement me!
 	// Hint: perform any initial work, and then consider what a node in the
 	// follower state should do when it receives an incoming message on every
@@ -23,7 +23,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 		panic("timeout is out of range")
 	}
 	t := time.NewTicker(timeout)
-	rn.setVotedFor(None)
+
 	for {
 		select {
 		case <-t.C:
