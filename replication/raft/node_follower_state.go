@@ -79,7 +79,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 				rn.log.Printf("proposal forwarding error: %v", err)
 			}
 		default:
-			if rn.commitIndex > rn.lastApplied {
+			for rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
