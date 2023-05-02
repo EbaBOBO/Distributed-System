@@ -211,7 +211,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
 			rn.log.Printf("leader term %v received requestVote: %v", rn.GetCurrentTerm(), &reply)
-			if msg.request.Term > rn.GetCurrentTerm() {
+			if reply.VoteGranted {
 				higherTermChan <- msg.request.Term
 			}
 		case msg := <-rn.appendEntriesC:

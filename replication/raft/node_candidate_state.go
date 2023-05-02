@@ -88,7 +88,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
 			rn.log.Printf("requestVote term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
-			if msg.request.Term > rn.GetCurrentTerm() {
+			if reply.VoteGranted {
 				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
 			}

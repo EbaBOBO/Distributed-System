@@ -35,7 +35,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 			t.Reset(timeout)
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
-			if reply.VoteGranted || (msg.request.Term > rn.GetCurrentTerm()) {
+			if reply.VoteGranted {
 				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
 			}
