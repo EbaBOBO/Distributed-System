@@ -45,6 +45,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	higherTermChan := make(chan uint64, 1)
 
 	for k, v := range rn.node.PeerConns {
+		lastEntryIdx := rn.LastLogIndex()
 		go func(nodeId uint64, conn *grpc.ClientConn) {
 			if rn.nextIndex[nodeId]-1 > rn.LastLogIndex() {
 				panic("")
@@ -73,7 +74,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			defer rn.leaderMu.Unlock()
 			if reply.Success {
 				rn.nextIndex[nodeId] += 1
-				rn.matchIndex[nodeId] += 1
+				rn.matchIndex[nodeId] = lastEntryIdx
 			} else {
 				rn.nextIndex[nodeId] -= 1
 			}
@@ -147,6 +148,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 					reply, err := remoteNode.AppendEntries(ctx, req)
 					if err != nil {
 						rn.log.Printf("AppendEntries error: %v", err)
+						return
 					}
 					// Update nextIndex and matchIndex for the follower if successful
 					rn.leaderMu.Lock()

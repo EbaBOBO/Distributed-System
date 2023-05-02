@@ -57,6 +57,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 			}
 		case msg, ok := <-rn.proposeC:
 			if !ok {
+				rn.Stop()
 				return nil
 			}
 			if rn.leader == 0 {
