@@ -36,11 +36,9 @@ func (rn *RaftNode) doFollower() stateFunction {
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
 			if reply.VoteGranted {
-				rn.SetCurrentTerm(msg.request.Term)
-				return rn.doFollower
+				t.Reset(timeout)
 			}
 		case msg := <-rn.appendEntriesC:
-			t.Reset(timeout)
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Entries != nil && len(msg.request.Entries[0].Data) > 0 {
@@ -48,10 +46,8 @@ func (rn *RaftNode) doFollower() stateFunction {
 				json.Unmarshal(msg.request.Entries[0].Data, &kv)
 				rn.log.Printf("follower received appendEntries %v, reply %v", kv, reply.Success)
 			}
-			if msg.request.Term > rn.GetCurrentTerm() {
-				rn.SetCurrentTerm(msg.request.Term)
-				rn.leader = msg.request.From
-				return rn.doFollower
+			if msg.request.Term >= rn.GetCurrentTerm() {
+				t.Reset(timeout)
 			}
 		case msg, ok := <-rn.proposeC:
 			if !ok {

@@ -92,7 +92,6 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			msg.reply <- reply
 			rn.log.Printf("requestVote term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
 			if reply.VoteGranted {
-				rn.SetCurrentTerm(msg.request.Term)
 				return rn.doFollower
 			}
 		case msg := <-rn.appendEntriesC:

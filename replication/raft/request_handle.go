@@ -64,7 +64,6 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 }
 
 func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestVoteReply {
-	// Reply false if term < rn.GetCurrentTerm()
 	if voteReq.Term < rn.GetCurrentTerm() {
 		rn.log.Printf("requestVoteC From %v, To %v, term %v, false", voteReq.From, voteReq.To, voteReq.Term)
 		return pb.RequestVoteReply{
@@ -74,8 +73,15 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 			VoteGranted: false,
 		}
 	}
-	// 	If votedFor is null or candidateId, and candidate’s log is at
-	// least as up-to-date as receiver’s log, grant vote
+	if (rn.GetCurrentTerm() == voteReq.Term) && (rn.GetVotedFor() != None) && (rn.GetVotedFor() != voteReq.From) {
+		return pb.RequestVoteReply{
+			From:        rn.node.ID,
+			To:          voteReq.From,
+			Term:        rn.GetCurrentTerm(),
+			VoteGranted: false,
+		}
+	}
+	rn.SetCurrentTerm(voteReq.Term)
 	if voteReq.LastLogTerm > rn.GetLog(rn.LastLogIndex()).Term {
 		rn.setVotedFor(voteReq.From)
 		return pb.RequestVoteReply{
@@ -110,3 +116,50 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 		}
 	}
 }
+
+// Reply false if term < rn.GetCurrentTerm()
+// if voteReq.Term < rn.GetCurrentTerm() {
+// 	rn.log.Printf("requestVoteC From %v, To %v, term %v, false", voteReq.From, voteReq.To, voteReq.Term)
+// 	return pb.RequestVoteReply{
+// 		From:        rn.node.ID,
+// 		To:          voteReq.From,
+// 		Term:        rn.GetCurrentTerm(),
+// 		VoteGranted: false,
+// 	}
+// }
+// rn.setVotedFor(None)
+// // 	If votedFor is null or candidateId, and candidate’s log is at
+// // least as up-to-date as receiver’s log, grant vote
+// if voteReq.LastLogTerm > rn.GetLog(rn.LastLogIndex()).Term {
+// 	rn.setVotedFor(voteReq.From)
+// 	return pb.RequestVoteReply{
+// 		From:        rn.node.ID,
+// 		To:          voteReq.From,
+// 		Term:        rn.GetCurrentTerm(),
+// 		VoteGranted: true,
+// 	}
+// } else if voteReq.LastLogTerm == rn.GetLog(rn.LastLogIndex()).Term {
+// 	if voteReq.LastLogIndex < rn.LastLogIndex() {
+// 		return pb.RequestVoteReply{
+// 			From:        rn.node.ID,
+// 			To:          voteReq.From,
+// 			Term:        rn.GetCurrentTerm(),
+// 			VoteGranted: false,
+// 		}
+// 	} else {
+// 		rn.setVotedFor(voteReq.From)
+// 		return pb.RequestVoteReply{
+// 			From:        rn.node.ID,
+// 			To:          voteReq.From,
+// 			Term:        rn.GetCurrentTerm(),
+// 			VoteGranted: true,
+// 		}
+// 	}
+// } else {
+// 	return pb.RequestVoteReply{
+// 		From:        rn.node.ID,
+// 		To:          voteReq.From,
+// 		Term:        rn.GetCurrentTerm(),
+// 		VoteGranted: false,
+// 	}
+// }
