@@ -41,11 +41,6 @@ func (rn *RaftNode) doFollower() stateFunction {
 			// t.Reset(timeout)
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
-			if msg.request.Entries != nil && len(msg.request.Entries[0].Data) > 0 {
-				kv := RaftKVPair{}
-				json.Unmarshal(msg.request.Entries[0].Data, &kv)
-				rn.log.Printf("follower received appendEntries %v, reply %v", kv, reply.Success)
-			}
 			if msg.request.Term >= rn.GetCurrentTerm() {
 				t.Reset(timeout)
 			}
