@@ -82,6 +82,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				return rn.doLeader
 			}
 			if voteRejectedCnt >= votesToLose {
+				rn.setVotedFor(None)
 				return rn.doFollower
 			}
 		case msg := <-rn.requestVoteC:
