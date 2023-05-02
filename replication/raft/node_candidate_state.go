@@ -71,6 +71,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			rn.log.Printf("Candidate %v: received reply from %v %v", rn.node.ID, reply.From, reply.VoteGranted)
 			if reply.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(reply.Term)
+				rn.setVotedFor(None)
 				return rn.doFollower
 			}
 			if reply.VoteGranted {
@@ -91,6 +92,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			rn.log.Printf("requestVote term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
 			if reply.VoteGranted {
 				rn.SetCurrentTerm(msg.request.Term)
+				rn.setVotedFor(None)
 				return rn.doFollower
 			}
 		case msg := <-rn.appendEntriesC:
@@ -100,6 +102,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			if msg.request.Term >= rn.GetCurrentTerm() {
 				rn.log.Printf("Change to follower state")
 				rn.SetCurrentTerm(msg.request.Term)
+				rn.setVotedFor(None)
 				return rn.doFollower
 			}
 		case _, ok := <-rn.proposeC:
