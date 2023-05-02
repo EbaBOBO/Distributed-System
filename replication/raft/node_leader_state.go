@@ -21,6 +21,12 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
 	// matchIndex[]
 	// for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
+	rn.StoreLog(&pb.LogEntry{
+		Term:  rn.GetCurrentTerm(),
+		Data:  nil,
+		Type:  pb.EntryType_NORMAL,
+		Index: rn.LastLogIndex() + 1,
+	})
 	rn.leaderMu.Lock()
 	for k := range rn.node.PeerNodes {
 		rn.matchIndex[k] = 0
@@ -30,12 +36,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// send initial empty AppendEntries RPCs (heartbeat) to each server
 	higherTermChan := make(chan uint64, 1)
 	// initial heartbeat
-	rn.StoreLog(&pb.LogEntry{
-		Term:  rn.GetCurrentTerm(),
-		Data:  nil,
-		Type:  pb.EntryType_NORMAL,
-		Index: rn.LastLogIndex() + 1,
-	})
 	sendAppendEntries(rn, true, higherTermChan)
 
 	t := time.NewTicker(rn.heartbeatTimeout)
