@@ -66,18 +66,15 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			// Update nextIndex and matchIndex for the follower if successful
 			rn.leaderMu.Lock()
 			defer rn.leaderMu.Unlock()
+			if rn.nextIndex[nodeId] < 1 {
+				panic("nextIndex < 1")
+			}
 			if reply.Success {
-				if rn.nextIndex[nodeId] < 1 {
-					panic("nextIndex < 1")
-				}
 				rn.log.Printf("Before update: %v nextIdx %v, matchIdx %v, lastEntryIdx %v", nodeId, rn.nextIndex, rn.matchIndex, lastEntryIdx)
-				rn.nextIndex[nodeId] = max(lastEntryIdx+1, rn.nextIndex[nodeId])
-				rn.matchIndex[nodeId] = rn.nextIndex[nodeId] - 1
+				rn.nextIndex[nodeId] = lastEntryIdx + 1
+				rn.matchIndex[nodeId] = lastEntryIdx
 				rn.log.Printf("After update: %v nextIdx %v, matchIdx %v, lastEntryIdx %v", nodeId, rn.nextIndex, rn.matchIndex, lastEntryIdx)
 			} else {
-				if rn.nextIndex[nodeId] < 1 {
-					panic("nextIndex < 1")
-				}
 				if rn.nextIndex[nodeId] > 1 {
 					rn.nextIndex[nodeId] -= 1
 				}
@@ -87,6 +84,7 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 			// set commitIndex = N
 			N := rn.commitIndex
+			newIdx := N
 			rn.log.Printf("nextIdx %v", rn.nextIndex)
 			rn.log.Printf("matchIdx %v", rn.matchIndex)
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
@@ -99,12 +97,13 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 					}
 				}
 				if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
-					rn.commitIndex = N
+					newIdx = N
 					continue
 				} else {
 					break
 				}
 			}
+			rn.commitIndex = newIdx
 			rn.log.Printf("commitIdx after %v", rn.commitIndex)
 			for rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
@@ -117,9 +116,9 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 	}
 }
 
-func max(a, b uint64) uint64 {
-	if a >= b {
-		return a
-	}
-	return b
-}
+// func max(a, b uint64) uint64 {
+// 	if a >= b {
+// 		return a
+// 	}
+// 	return b
+// }
