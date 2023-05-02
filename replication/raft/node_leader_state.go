@@ -68,6 +68,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
 			// repeat during idle periods to prevent election timeouts
+			t.Reset(rn.heartbeatTimeout)
 			sendAppendEntries(rn, false, higherTermChan)
 		case msg := <-rn.requestVoteC:
 			rn.log.Printf("nextIdx %v", rn.nextIndex)
