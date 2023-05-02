@@ -18,7 +18,7 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			prevIdx := nextIdx - 1
 			lastEntryIdx := rn.LastLogIndex()
 			if prevIdx > lastEntryIdx {
-				panic("prevIdx > lastEntryIdx: " + fmt.Sprintf("%v %v", prevIdx, lastEntryIdx)))
+				panic("prevIdx > lastEntryIdx: " + fmt.Sprintf("%v %v", prevIdx, lastEntryIdx))
 			}
 			rn.leaderMu.Unlock()
 			var req *pb.AppendEntriesRequest
