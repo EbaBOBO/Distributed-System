@@ -51,6 +51,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				rn.log.Printf("RequestVote RPC failed: %v", err)
 				return
 			}
+			rn.log.Printf("Node %v: received RequestVote from %v: %v", rn.node.ID, nodeId, reply)
 			replyChan <- reply
 		}(k, v)
 	}
@@ -79,9 +80,11 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				voteRejectedCnt++
 			}
 			if voteGrantedCnt >= votesToWin {
+				rn.log.Printf("Node %v: election won", rn.node.ID)
 				return rn.doLeader
 			}
 			if voteRejectedCnt >= votesToLose {
+				rn.log.Printf("Node %v: election lost", rn.node.ID)
 				return rn.doFollower
 			}
 		case msg := <-rn.requestVoteC:
