@@ -24,8 +24,6 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			}
 			rn.leaderMu.Unlock()
 			var req *pb.AppendEntriesRequest
-			entriesLength := 0
-
 			if init {
 				req = &pb.AppendEntriesRequest{
 					From:         rn.node.ID,
@@ -36,7 +34,6 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 					Entries:      nil,
 					LeaderCommit: rn.commitIndex,
 				}
-				entriesLength = 1
 			} else {
 				entries := []*pb.LogEntry{}
 				for i := nextIdx; i <= lastEntryIdx; i++ {
@@ -52,7 +49,6 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 					Entries:      entries,
 					LeaderCommit: rn.commitIndex,
 				}
-				entriesLength = len(entries)
 			}
 			conn := rn.node.PeerConns[nodeId]
 			ctx, cancel := context.WithCancel(context.Background())
