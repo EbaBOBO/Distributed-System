@@ -14,17 +14,19 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 		go func(nodeId uint64) {
 			rn.leaderMu.Lock()
 			nextIdx := rn.nextIndex[nodeId]
-			rn.leaderMu.Unlock()
+			prevIdx := nextIdx - 1
 			lastEntryIdx := rn.LastLogIndex()
+			rn.leaderMu.Unlock()
 			var req *pb.AppendEntriesRequest
 			entriesLength := 0
+
 			if init {
 				req = &pb.AppendEntriesRequest{
 					From:         rn.node.ID,
 					To:           nodeId,
 					Term:         rn.GetCurrentTerm(),
-					PrevLogIndex: nextIdx - 1,
-					PrevLogTerm:  rn.GetLog(nextIdx - 1).Term,
+					PrevLogIndex: prevIdx,
+					PrevLogTerm:  rn.GetLog(prevIdx).Term,
 					Entries:      nil,
 					LeaderCommit: rn.commitIndex,
 				}
@@ -35,7 +37,7 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 					rn.log.Printf("leader sent new entries to %v: %v", nodeId, rn.GetLog(i))
 					entries = append(entries, rn.GetLog(i))
 				}
-				if rn.GetLog(nextIdx-1) == nil {
+				if rn.GetLog(prevIdx) == nil {
 					a := rn.LastLogIndex()
 					rn.log.Print(a)
 					panic("nextIdx - 1 is nil")
@@ -44,8 +46,8 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 					From:         rn.node.ID,
 					To:           nodeId,
 					Term:         rn.GetCurrentTerm(),
-					PrevLogIndex: nextIdx - 1,
-					PrevLogTerm:  rn.GetLog(nextIdx - 1).Term,
+					PrevLogIndex: prevIdx,
+					PrevLogTerm:  rn.GetLog(prevIdx).Term,
 					Entries:      entries,
 					LeaderCommit: rn.commitIndex,
 				}
@@ -69,7 +71,7 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			defer rn.leaderMu.Unlock()
 			if reply.Success {
 				rn.log.Printf("nextIndex add to %v with %v, lastEntryIdx %v", nodeId, entriesLength, lastEntryIdx)
-				rn.nextIndex[nodeId] += uint64(entriesLength)
+				rn.nextIndex[nodeId] = lastEntryIdx + 1
 				rn.matchIndex[nodeId] = lastEntryIdx
 			} else {
 				rn.nextIndex[nodeId] -= 1
