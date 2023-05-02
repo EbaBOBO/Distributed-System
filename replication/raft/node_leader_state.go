@@ -72,6 +72,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.matchIndex[nodeId] = lastEntryIdx
 			} else {
 				rn.nextIndex[nodeId] -= 1
+				return
 			}
 			// If there exists an N such that N > commitIndex, a majority
 			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
@@ -156,6 +157,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 						rn.matchIndex[nodeId] = lastEntryIdx
 					} else {
 						rn.nextIndex[nodeId] -= 1
+						return
 					}
 					// If there exists an N such that N > commitIndex, a majority
 					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
@@ -178,8 +180,11 @@ func (rn *RaftNode) doLeader() stateFunction {
 							break
 						}
 					}
-					if rn.commitIndex > rn.lastApplied {
+					for rn.commitIndex > rn.lastApplied {
 						rn.lastApplied++
+						if rn.GetLog(rn.lastApplied).Data == nil {
+							continue
+						}
 						rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 					}
 					if reply.Term > rn.GetCurrentTerm() {
