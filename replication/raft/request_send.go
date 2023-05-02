@@ -73,7 +73,12 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 				rn.nextIndex[nodeId] = max(lastEntryIdx+1, rn.nextIndex[nodeId])
 				rn.matchIndex[nodeId] = lastEntryIdx
 			} else {
-				rn.nextIndex[nodeId] = min(1, rn.nextIndex[nodeId]-1)
+				if rn.nextIndex[nodeId] < 1 {
+					panic("nextIndex < 1")
+				}
+				if rn.nextIndex[nodeId] > 1 {
+					rn.nextIndex[nodeId] -= 1
+				}
 				return
 			}
 			// If there exists an N such that N > commitIndex, a majority
@@ -112,13 +117,6 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 
 func max(a, b uint64) uint64 {
 	if a >= b {
-		return a
-	}
-	return b
-}
-
-func min(a, b uint64) uint64 {
-	if a <= b {
 		return a
 	}
 	return b
