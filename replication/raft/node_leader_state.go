@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	pb "modist/proto"
-	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -12,8 +11,7 @@ import (
 
 // doLeader implements the logic for a Raft node in the leader state.
 func (rn *RaftNode) doLeader() stateFunction {
-	nodeCurrentTerm := rn.GetCurrentTerm()
-	rn.log.Printf("+++++++++++++++++++++++++transitioning to leader state at term %d+++++++++++++++++++++++++", nodeCurrentTerm)
+	rn.log.Printf("+++++++++++++++++++++++++transitioning to leader state at term %d+++++++++++++++++++++++++", rn.GetCurrentTerm())
 	rn.state = LeaderState
 
 	// TODO(students): [Raft] Implement me!
@@ -34,17 +32,17 @@ func (rn *RaftNode) doLeader() stateFunction {
 
 	// initial heartbeat
 	rn.StoreLog(&pb.LogEntry{
-		Term:  nodeCurrentTerm,
+		Term:  rn.GetCurrentTerm(),
 		Data:  nil,
 		Type:  pb.EntryType_NORMAL,
 		Index: rn.LastLogIndex() + 1,
 	})
 	// send initial empty AppendEntries RPCs (heartbeat) to each server
-	var higherTerm atomic.Bool
-	higherTerm.Store(false)
 	higherTermChan := make(chan uint64, 1)
-
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for k, v := range rn.node.PeerConns {
+<<<<<<< HEAD
 		lastEntryIdx := rn.LastLogIndex()
 		go func(nodeId uint64, conn *grpc.ClientConn) {
 			if rn.nextIndex[nodeId]-1 > rn.LastLogIndex() {
@@ -52,12 +50,19 @@ func (rn *RaftNode) doLeader() stateFunction {
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+=======
+		if k == rn.node.ID {
+			continue
+		}
+		lastEntryIdx := rn.LastLogIndex()
+		go func(nodeId uint64, conn *grpc.ClientConn) {
+>>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 			remoteNode := pb.NewRaftRPCClient(conn)
 			prevIdx := rn.nextIndex[nodeId] - 1
 			msgReq := &pb.AppendEntriesRequest{
 				From:         rn.node.ID,
 				To:           nodeId,
-				Term:         nodeCurrentTerm,
+				Term:         rn.GetCurrentTerm(),
 				PrevLogIndex: prevIdx,
 				PrevLogTerm:  rn.GetLog(prevIdx).Term,
 				Entries:      nil,
@@ -69,6 +74,10 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.log.Printf("AppendEntries error: %v", err)
 				return
 			}
+			if reply.Term > rn.GetCurrentTerm() {
+				higherTermChan <- reply.Term
+				return
+			}
 			// Update nextIndex and matchIndex for the follower if successful
 			rn.leaderMu.Lock()
 			defer rn.leaderMu.Unlock()
@@ -77,13 +86,15 @@ func (rn *RaftNode) doLeader() stateFunction {
 				rn.matchIndex[nodeId] = lastEntryIdx
 			} else {
 				rn.nextIndex[nodeId] -= 1
+				return
 			}
 			// If there exists an N such that N > commitIndex, a majority
 			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 			// set commitIndex = N
 			N := rn.commitIndex
-			rn.log.Print(rn.commitIndex)
-			rn.log.Print(rn.nextIndex)
+			rn.log.Printf("commitIdx before %v", rn.commitIndex)
+			rn.log.Printf("nextIdx %v", rn.nextIndex)
+			rn.log.Printf("matchIdx %v", rn.matchIndex)
 			for {
 				N += 1
 				cnt := 0
@@ -92,19 +103,20 @@ func (rn *RaftNode) doLeader() stateFunction {
 						cnt++
 					}
 				}
-				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == nodeCurrentTerm {
+				if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 					rn.commitIndex = N
 					continue
 				} else {
 					break
 				}
 			}
-			if rn.commitIndex > rn.lastApplied {
+			rn.log.Printf("commitIdx after  %v", rn.commitIndex)
+			for rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
+				if rn.GetLog(rn.lastApplied).Data == nil {
+					continue
+				}
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-			}
-			if reply.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
-				higherTermChan <- reply.Term
 			}
 		}(k, v)
 	}
@@ -114,9 +126,13 @@ func (rn *RaftNode) doLeader() stateFunction {
 	for {
 		select {
 		case <-t.C:
+			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
 			// repeat during idle periods to prevent election timeouts
 			for k, v := range rn.nextIndex {
+				if k == rn.node.ID {
+					continue
+				}
 				lastIdx := rn.LastLogIndex()
 				//if v-1 > rn.LastLogIndex() {
 				//	panic("sss")
@@ -135,7 +151,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 					req := &pb.AppendEntriesRequest{
 						From:         rn.node.ID,
 						To:           nodeId,
-						Term:         nodeCurrentTerm,
+						Term:         rn.GetCurrentTerm(),
 						PrevLogIndex: nextIdx - 1,
 						PrevLogTerm:  rn.GetLog(nextIdx - 1).Term,
 						Entries:      entries,
@@ -149,6 +165,13 @@ func (rn *RaftNode) doLeader() stateFunction {
 					if err != nil {
 						rn.log.Printf("AppendEntries error: %v", err)
 						return
+<<<<<<< HEAD
+=======
+					}
+					if reply.Term > rn.GetCurrentTerm() {
+						higherTermChan <- reply.Term
+						return
+>>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 					}
 					// Update nextIndex and matchIndex for the follower if successful
 					rn.leaderMu.Lock()
@@ -159,13 +182,18 @@ func (rn *RaftNode) doLeader() stateFunction {
 						rn.matchIndex[nodeId] = lastEntryIdx
 					} else {
 						rn.nextIndex[nodeId] -= 1
+						return
 					}
 					// If there exists an N such that N > commitIndex, a majority
 					// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 					// set commitIndex = N
 					N := rn.commitIndex
 					rn.log.Printf("nextIdx %v", rn.nextIndex)
+<<<<<<< HEAD
 					rn.log.Printf("matchIndex %v", rn.matchIndex)
+=======
+					rn.log.Printf("matchIdx %v", rn.matchIndex)
+>>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 					rn.log.Printf("commitIdx %v", rn.commitIndex)
 					for {
 						N += 1
@@ -175,18 +203,22 @@ func (rn *RaftNode) doLeader() stateFunction {
 								cnt++
 							}
 						}
-						if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == nodeCurrentTerm {
+						if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 							rn.commitIndex = N
 							continue
 						} else {
 							break
 						}
 					}
-					if rn.commitIndex > rn.lastApplied {
+					rn.log.Printf("commitIdx after %v", rn.commitIndex)
+					for rn.commitIndex > rn.lastApplied {
 						rn.lastApplied++
+						if rn.GetLog(rn.lastApplied).Data == nil {
+							continue
+						}
 						rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 					}
-					if reply.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
+					if reply.Term > rn.GetCurrentTerm() {
 						higherTermChan <- reply.Term
 					}
 				}(k, v, lastIdx)
@@ -197,12 +229,16 @@ func (rn *RaftNode) doLeader() stateFunction {
 		case msg, ok := <-rn.proposeC:
 			rn.log.Printf("leader received proposal: %v", msg)
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
+			rn.log.Printf("nextIdx %v", rn.nextIndex)
+			rn.log.Printf("matchIdx %v", rn.matchIndex)
 			if !ok {
+				rn.log.Printf("Stop")
+				rn.Stop()
 				return nil
 			}
 			entry := pb.LogEntry{
 				Index: rn.LastLogIndex() + 1,
-				Term:  nodeCurrentTerm,
+				Term:  rn.GetCurrentTerm(),
 				Type:  pb.EntryType_NORMAL,
 				Data:  msg,
 			}
@@ -212,22 +248,27 @@ func (rn *RaftNode) doLeader() stateFunction {
 			json.Unmarshal(msg, &kv)
 
 		case msg := <-rn.requestVoteC:
-			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, msg.request)
-			reply := handleRequestVote(rn, nodeCurrentTerm, msg.request)
+			rn.log.Printf("nextIdx %v", rn.nextIndex)
+			rn.log.Printf("matchIdx %v", rn.matchIndex)
+			rn.log.Printf("commitIdx %v", rn.commitIndex)
+			rn.log.Printf("leader term %v received requestVote: %v", rn.GetCurrentTerm(), msg.request)
+			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
-			rn.log.Printf("leader term %v received requestVote: %v", nodeCurrentTerm, &reply)
-			if msg.request.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
-				higherTermChan <- msg.request.Term
+			rn.log.Printf("leader term %v received requestVote: %v", rn.GetCurrentTerm(), &reply)
+			if reply.VoteGranted {
+				rn.SetCurrentTerm(msg.request.Term)
+				return rn.doFollower
 			}
+
 		case msg := <-rn.appendEntriesC:
-			rn.log.Printf("leader term %v received AppendEntries: %v", nodeCurrentTerm, msg.request)
-			reply := handleAppendEntries(rn, nodeCurrentTerm, msg.request)
+			rn.log.Printf("leader term %v received AppendEntries: %v", rn.GetCurrentTerm(), msg.request)
+			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
-			if msg.request.Term > nodeCurrentTerm && higherTerm.CompareAndSwap(false, true) {
+			if msg.request.Term > rn.GetCurrentTerm() {
 				higherTermChan <- msg.request.Term
 			}
 		case msg := <-higherTermChan:
-			rn.log.Printf("leader term %v received AppendEntries reply with higher term:%v", nodeCurrentTerm, msg)
+			rn.log.Printf("leader term %v received AppendEntries reply with higher term:%v", rn.GetCurrentTerm(), msg)
 			rn.SetCurrentTerm(msg)
 			return rn.doFollower
 		}

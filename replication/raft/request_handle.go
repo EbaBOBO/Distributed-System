@@ -2,15 +2,15 @@ package raft
 
 import pb "modist/proto"
 
-func handleAppendEntries(rn *RaftNode, nodeCurrentTerm uint64, appendReq *pb.AppendEntriesRequest) pb.AppendEntriesReply {
-	// rn.log.Printf("AppendEntries from %v, term: %v, node term: %v", appendReq.From, appendReq.Term, nodeCurrentTerm)
+func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.AppendEntriesReply {
+	// rn.log.Printf("AppendEntries from %v, term: %v, node term: %v", appendReq.From, appendReq.Term, rn.GetCurrentTerm())
 
-	// Reply false if term < nodeCurrentTerm
-	if appendReq.Term < nodeCurrentTerm {
+	// Reply false if term < rn.GetCurrentTerm()
+	if appendReq.Term < rn.GetCurrentTerm() {
 		return pb.AppendEntriesReply{
 			From:    rn.node.ID,
 			To:      appendReq.From,
-			Term:    nodeCurrentTerm,
+			Term:    rn.GetCurrentTerm(),
 			Success: false,
 		}
 
@@ -22,7 +22,7 @@ func handleAppendEntries(rn *RaftNode, nodeCurrentTerm uint64, appendReq *pb.App
 		return pb.AppendEntriesReply{
 			From:    rn.node.ID,
 			To:      appendReq.From,
-			Term:    nodeCurrentTerm,
+			Term:    rn.GetCurrentTerm(),
 			Success: false,
 		}
 
@@ -58,24 +58,35 @@ func handleAppendEntries(rn *RaftNode, nodeCurrentTerm uint64, appendReq *pb.App
 	return pb.AppendEntriesReply{
 		From:    rn.node.ID,
 		To:      appendReq.From,
-		Term:    nodeCurrentTerm,
+		Term:    rn.GetCurrentTerm(),
 		Success: true,
 	}
 }
 
-func handleRequestVote(rn *RaftNode, nodeCurrentTerm uint64, voteReq *pb.RequestVoteRequest) pb.RequestVoteReply {
-	// Reply false if term < nodeCurrentTerm
-	if voteReq.Term < nodeCurrentTerm {
+func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestVoteReply {
+	// Reply false if term < rn.GetCurrentTerm()
+	if voteReq.Term < rn.GetCurrentTerm() {
 		rn.log.Printf("requestVoteC From %v, To %v, term %v, false", voteReq.From, voteReq.To, voteReq.Term)
 		return pb.RequestVoteReply{
 			From:        rn.node.ID,
 			To:          voteReq.From,
-			Term:        nodeCurrentTerm,
+			Term:        rn.GetCurrentTerm(),
 			VoteGranted: false,
 		}
 	}
+	if (rn.GetCurrentTerm() == voteReq.Term) && (rn.GetVotedFor() != None) &&
+		(rn.GetVotedFor() != voteReq.From) {
+		return pb.RequestVoteReply{
+			From:        rn.node.ID,
+			To:          voteReq.From,
+			Term:        rn.GetCurrentTerm(),
+			VoteGranted: false,
+		}
+	}
+	rn.SetCurrentTerm(voteReq.Term)
 	// 	If votedFor is null or candidateId, and candidate’s log is at
 	// least as up-to-date as receiver’s log, grant vote
+<<<<<<< HEAD
 	if rn.GetVotedFor() == None || rn.GetVotedFor() == voteReq.From {
 		rn.log.Printf("requestVoteC From %v, To %v, term  %v, true", voteReq.From, voteReq.To, voteReq.Term)
 		if voteReq.GetLastLogTerm() >= rn.GetLog(rn.LastLogIndex()).Term {
@@ -88,12 +99,39 @@ func handleRequestVote(rn *RaftNode, nodeCurrentTerm uint64, voteReq *pb.Request
 					VoteGranted: true,
 				}
 			}
+=======
+	if voteReq.LastLogTerm > rn.GetLog(rn.LastLogIndex()).Term {
+		rn.setVotedFor(voteReq.From)
+		return pb.RequestVoteReply{
+			From:        rn.node.ID,
+			To:          voteReq.From,
+			Term:        rn.GetCurrentTerm(),
+			VoteGranted: true,
+>>>>>>> 047e26d7f10bb1dce906443546ba490df0d141e8
 		}
-	}
-	return pb.RequestVoteReply{
-		From:        rn.node.ID,
-		To:          voteReq.From,
-		Term:        nodeCurrentTerm,
-		VoteGranted: false,
+	} else if voteReq.LastLogTerm == rn.GetLog(rn.LastLogIndex()).Term {
+		if voteReq.LastLogIndex < rn.LastLogIndex() {
+			return pb.RequestVoteReply{
+				From:        rn.node.ID,
+				To:          voteReq.From,
+				Term:        rn.GetCurrentTerm(),
+				VoteGranted: false,
+			}
+		} else {
+			rn.setVotedFor(voteReq.From)
+			return pb.RequestVoteReply{
+				From:        rn.node.ID,
+				To:          voteReq.From,
+				Term:        rn.GetCurrentTerm(),
+				VoteGranted: true,
+			}
+		}
+	} else {
+		return pb.RequestVoteReply{
+			From:        rn.node.ID,
+			To:          voteReq.From,
+			Term:        rn.GetCurrentTerm(),
+			VoteGranted: false,
+		}
 	}
 }
