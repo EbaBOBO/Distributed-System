@@ -78,8 +78,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 			// set commitIndex = N
 			N := rn.commitIndex
-			rn.log.Print(rn.commitIndex)
-			rn.log.Print(rn.nextIndex)
+			rn.log.Printf("commitIdx before %v", rn.commitIndex)
+			rn.log.Printf("nextIdx %v", rn.nextIndex)
+			rn.log.Printf("matchIdx %v", rn.matchIndex)
 			for {
 				N += 1
 				cnt := 0
@@ -88,13 +89,14 @@ func (rn *RaftNode) doLeader() stateFunction {
 						cnt++
 					}
 				}
-				if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N).Term == rn.GetCurrentTerm() {
+				if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 					rn.commitIndex = N
 					continue
 				} else {
 					break
 				}
 			}
+			rn.log.Printf("commitIdx after  %v", rn.commitIndex)
 			for rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
 				if rn.GetLog(rn.lastApplied).Data == nil {
@@ -175,7 +177,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 								cnt++
 							}
 						}
-						if cnt >= (len(rn.node.PeerNodes)/2)+1 && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
+						if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 							rn.commitIndex = N
 							continue
 						} else {
