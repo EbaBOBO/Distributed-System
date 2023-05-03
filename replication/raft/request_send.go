@@ -7,6 +7,9 @@ import (
 )
 
 func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
+	if len(rn.node.PeerConns) == 1 {
+		updateCommitIndex(rn)
+	}
 	for nd, _ := range rn.node.PeerNodes {
 		if nd == rn.node.ID {
 			continue
@@ -82,9 +85,6 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 				return
 			}
 		}(nd)
-	}
-	if len(rn.node.PeerConns) == 1 {
-		updateCommitIndex(rn)
 	}
 }
 
