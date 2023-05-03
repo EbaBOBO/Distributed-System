@@ -73,8 +73,13 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			}
 			if reply.Success {
 				rn.log.Printf("Before update: %v nextIdx %v, matchIdx %v, lastEntryIdx %v", nodeId, rn.nextIndex, rn.matchIndex, lastEntryIdx)
-				rn.nextIndex[nodeId] = lastEntryIdx + 1
-				rn.matchIndex[nodeId] = lastEntryIdx
+				if init {
+					rn.nextIndex[nodeId] = rn.nextIndex[nodeId] + 1
+					rn.matchIndex[nodeId] = rn.matchIndex[nodeId] + 1
+				} else {
+					rn.nextIndex[nodeId] = lastEntryIdx + 1
+					rn.matchIndex[nodeId] = lastEntryIdx
+				}
 				rn.log.Printf("After update: %v nextIdx %v, matchIdx %v, lastEntryIdx %v", nodeId, rn.nextIndex, rn.matchIndex, lastEntryIdx)
 			} else {
 				if rn.nextIndex[nodeId] > 1 {
