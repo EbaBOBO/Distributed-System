@@ -42,7 +42,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 	// send initial empty AppendEntries RPCs (heartbeat) to each server
 	higherTermChan := make(chan uint64, 1)
 	// initial heartbeat
-	sendAppendEntries(rn, true, higherTermChan)
+	sendAppendEntries(rn, true, rn.LastLogIndex(), higherTermChan)
 
 	t := time.NewTicker(rn.heartbeatTimeout)
 
@@ -51,7 +51,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 		case <-t.C:
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
-			sendAppendEntries(rn, false, higherTermChan)
+			sendAppendEntries(rn, false, rn.LastLogIndex(), higherTermChan)
 			t.Stop()
 			t.Reset(rn.heartbeatTimeout)
 		// If command received from client: append entry to local log,
@@ -79,7 +79,7 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
 			// repeat during idle periods to prevent election timeouts
-			sendAppendEntries(rn, false, higherTermChan)
+			sendAppendEntries(rn, false, rn.LastLogIndex(), higherTermChan)
 			t.Stop()
 			t.Reset(rn.heartbeatTimeout)
 		case msg := <-rn.requestVoteC:
