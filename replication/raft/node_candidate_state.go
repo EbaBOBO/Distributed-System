@@ -114,6 +114,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			if !ok {
 				rn.log.Printf("Stop")
 				rn.Stop()
+				close(rn.stopC)
 				return nil
 			}
 		default:
