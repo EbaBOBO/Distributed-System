@@ -28,13 +28,13 @@ func (rn *RaftNode) doLeader() stateFunction {
 		rn.matchIndex[k] = 0
 		rn.nextIndex[k] = rn.LastLogIndex() + 1
 	}
-	rn.leaderMu.Unlock()
 	rn.StoreLog(&pb.LogEntry{
 		Term:  rn.GetCurrentTerm(),
 		Data:  nil,
 		Type:  pb.EntryType_NORMAL,
 		Index: rn.LastLogIndex() + 1,
 	})
+	rn.leaderMu.Unlock()
 	// send initial empty AppendEntries RPCs (heartbeat) to each server
 	higherTermChan := make(chan uint64, 1)
 	// initial heartbeat
@@ -92,7 +92,6 @@ func (rn *RaftNode) doLeader() stateFunction {
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Term > rn.GetCurrentTerm() {
-				rn.leader = msg.request.From
 				higherTermChan <- msg.request.Term
 			}
 		case msg := <-higherTermChan:

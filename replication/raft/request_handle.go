@@ -103,6 +103,14 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 				VoteGranted: false,
 			}
 		} else {
+			if rn.state == LeaderState && voteReq.LastLogIndex == rn.LastLogIndex() {
+				return pb.RequestVoteReply{
+					From:        rn.node.ID,
+					To:          voteReq.From,
+					Term:        rn.GetCurrentTerm(),
+					VoteGranted: false,
+				}
+			}
 			rn.setVotedFor(voteReq.From)
 			return pb.RequestVoteReply{
 				From:        rn.node.ID,

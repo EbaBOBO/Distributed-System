@@ -82,6 +82,9 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 				return
 			}
 		}(nd)
+		if len(rn.node.PeerConns) == 1 {
+			updateCommitIndex(rn)
+		}
 	}
 }
 
