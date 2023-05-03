@@ -35,6 +35,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 			reply := handleRequestVote(rn, msg.request)
 			msg.reply <- reply
 			if reply.VoteGranted {
+				t.Stop()
 				t.Reset(timeout)
 			}
 		case msg := <-rn.appendEntriesC:
@@ -42,6 +43,7 @@ func (rn *RaftNode) doFollower() stateFunction {
 			reply := handleAppendEntries(rn, msg.request)
 			msg.reply <- reply
 			if msg.request.Term >= rn.GetCurrentTerm() {
+				t.Stop()
 				t.Reset(timeout)
 			}
 			if msg.request.Term > rn.GetCurrentTerm() {

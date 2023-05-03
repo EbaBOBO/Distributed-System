@@ -25,6 +25,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 
 	rn.leaderMu.Lock()
 	for k := range rn.node.PeerNodes {
+		if k == rn.node.ID {
+			continue
+		}
 		rn.matchIndex[k] = 0
 		rn.nextIndex[k] = rn.LastLogIndex() + 1
 	}
@@ -49,6 +52,8 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
 			sendAppendEntries(rn, false, higherTermChan)
+			t.Stop()
+			t.Reset(rn.heartbeatTimeout)
 		// If command received from client: append entry to local log,
 		// respond after entry applied to state machine
 		case msg, ok := <-rn.proposeC:
@@ -73,8 +78,9 @@ func (rn *RaftNode) doLeader() stateFunction {
 			rn.log.Printf("commitIdx %v", rn.commitIndex)
 			rn.log.Printf("leader sending heartbeat, commitIdx %v", rn.commitIndex)
 			// repeat during idle periods to prevent election timeouts
-			t.Reset(rn.heartbeatTimeout)
 			sendAppendEntries(rn, false, higherTermChan)
+			t.Stop()
+			t.Reset(rn.heartbeatTimeout)
 		case msg := <-rn.requestVoteC:
 			rn.log.Printf("nextIdx %v", rn.nextIndex)
 			rn.log.Printf("matchIdx %v", rn.matchIndex)
