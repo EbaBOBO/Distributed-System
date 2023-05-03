@@ -108,6 +108,8 @@ func updateCommitIndex(rn *RaftNode) {
 				cnt++
 			}
 		}
+		rn.log.Printf("cnt %v", cnt)
+		rn.log.Printf("node term %v, log term %v", rn.GetCurrentTerm(), rn.GetLog(N).Term)
 		if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 			newIdx = N
 		}
