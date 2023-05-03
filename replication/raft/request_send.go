@@ -72,8 +72,8 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			}
 			if reply.Success {
 				rn.log.Printf("Before update: %v nextIdx %v, matchIdx %v, lastEntryIdx %v", nodeId, rn.nextIndex, rn.matchIndex, lastEntryIdx)
-				rn.nextIndex[nodeId] = max(lastEntryIdx+1, rn.nextIndex[nodeId])
-				rn.matchIndex[nodeId] = max(lastEntryIdx, rn.matchIndex[nodeId])
+				rn.nextIndex[nodeId] = lastEntryIdx + 1
+				rn.matchIndex[nodeId] = lastEntryIdx
 				rn.log.Printf("After update: %v nextIdx %v, matchIdx %v, lastEntryIdx %v", nodeId, rn.nextIndex, rn.matchIndex, lastEntryIdx)
 			} else {
 				if rn.nextIndex[nodeId] > 1 {
@@ -82,9 +82,9 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 				return
 			}
 		}(nd)
-		if len(rn.node.PeerConns) == 1 {
-			updateCommitIndex(rn)
-		}
+	}
+	if len(rn.node.PeerConns) == 1 {
+		updateCommitIndex(rn)
 	}
 }
 
@@ -108,10 +108,6 @@ func updateCommitIndex(rn *RaftNode) {
 				cnt++
 			}
 		}
-		if rn.GetLog(N) != nil {
-			rn.log.Printf("cnt %v", cnt)
-			rn.log.Printf("node term %v, log term %v", rn.GetCurrentTerm(), rn.GetLog(N).Term)
-		}
 		if cnt >= (len(rn.node.PeerNodes)/2) && rn.GetLog(N) != nil && rn.GetLog(N).Term == rn.GetCurrentTerm() {
 			newIdx = N
 		}
@@ -127,9 +123,9 @@ func updateCommitIndex(rn *RaftNode) {
 	}
 }
 
-func max(a, b uint64) uint64 {
-	if a >= b {
-		return a
-	}
-	return b
-}
+// func max(a, b uint64) uint64 {
+// 	if a >= b {
+// 		return a
+// 	}
+// 	return b
+// }

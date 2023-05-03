@@ -7,6 +7,8 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 
 	// Reply false if term < rn.GetCurrentTerm()
 	if appendReq.Term < rn.GetCurrentTerm() {
+		rn.log.Printf("10: AppendEntries from %v, term: %v, node term: %v", appendReq.From, appendReq.Term, rn.GetCurrentTerm())
+
 		return pb.AppendEntriesReply{
 			From:    rn.node.ID,
 			To:      appendReq.From,
@@ -19,6 +21,7 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 	// Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm
 	if l := rn.GetLog(appendReq.PrevLogIndex); l == nil || l.Term != appendReq.PrevLogTerm {
+		rn.log.Printf("24: AppendEntries from %v, term: %v, node term: %v", appendReq.From, appendReq.Term, rn.GetCurrentTerm())
 		return pb.AppendEntriesReply{
 			From:    rn.node.ID,
 			To:      appendReq.From,
@@ -47,10 +50,13 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 	}
 	// If leaderCommit > commitIndex, set commitIndex =
 	// min(leaderCommit, index of last new entry)
+	lastnewi := appendReq.PrevLogIndex + uint64(len(appendReq.Entries))
 	if appendReq.LeaderCommit > rn.commitIndex {
 		if appendReq.LeaderCommit <= rn.LastLogIndex() {
+			rn.log.Printf("handle 53 %v, %v,%v", lastnewi, appendReq.LeaderCommit, rn.commitIndex)
 			rn.commitIndex = appendReq.LeaderCommit
 		} else {
+			rn.log.Printf("handle 56 %v, %v,%v", lastnewi, rn.LastLogIndex(), rn.commitIndex)
 			rn.commitIndex = rn.LastLogIndex()
 		}
 	}
@@ -64,14 +70,6 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 }
 
 func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestVoteReply {
-	if voteReq.From == voteReq.To {
-		return pb.RequestVoteReply{
-			From:        rn.node.ID,
-			To:          voteReq.From,
-			Term:        rn.GetCurrentTerm(),
-			VoteGranted: false,
-		}
-	}
 	// Reply false if term < rn.GetCurrentTerm()
 	if voteReq.Term < rn.GetCurrentTerm() {
 		rn.log.Printf("requestVoteC From %v, To %v, term %v, false", voteReq.From, voteReq.To, voteReq.Term)
@@ -96,6 +94,7 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 	// least as up-to-date as receiver’s log, grant vote
 	if voteReq.LastLogTerm > rn.GetLog(rn.LastLogIndex()).Term {
 		rn.setVotedFor(voteReq.From)
+		rn.log.Printf("handle:94 %v, %v", voteReq.LastLogTerm, rn.GetLog(rn.LastLogIndex()).Term)
 		return pb.RequestVoteReply{
 			From:        rn.node.ID,
 			To:          voteReq.From,
@@ -119,6 +118,7 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 					VoteGranted: false,
 				}
 			}
+			rn.log.Printf("handle:110 %v, %v", voteReq.LastLogIndex, rn.LastLogIndex())
 			rn.setVotedFor(voteReq.From)
 			return pb.RequestVoteReply{
 				From:        rn.node.ID,

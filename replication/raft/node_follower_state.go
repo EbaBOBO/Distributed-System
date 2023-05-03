@@ -46,6 +46,8 @@ func (rn *RaftNode) doFollower() stateFunction {
 			}
 			if msg.request.Term > rn.GetCurrentTerm() {
 				rn.SetCurrentTerm(msg.request.Term)
+				rn.leader = msg.request.From
+				return rn.doFollower
 			}
 		case msg, ok := <-rn.proposeC:
 			if !ok {

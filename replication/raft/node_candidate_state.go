@@ -23,10 +23,10 @@ func (rn *RaftNode) doCandidate() stateFunction {
 
 	// Vote for self
 	rn.setVotedFor(rn.node.ID)
+	// Set election timer
 	if len(rn.node.PeerConns) == 1 {
 		return rn.doLeader
 	}
-	// Set election timer
 	timeout := time.Duration(float64(rn.electionTimeout) * (1 + rand.Float64()))
 	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
 		panic("timeout is out of range")
@@ -63,7 +63,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 	voteGrantedCnt := 0
 	voteRejectedCnt := 0
 	rn.log.Print(rn.GetCurrentTerm())
-	for len(rn.node.PeerNodes) > 2 {
+	for {
 		select {
 		case <-t.C:
 			// If election timeout elapses: start new election
@@ -106,6 +106,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				rn.log.Printf("Change to follower state")
 				rn.SetCurrentTerm(msg.request.Term)
 				rn.setVotedFor(None)
+				rn.leader = msg.request.From
 				return rn.doFollower
 			}
 		case _, ok := <-rn.proposeC:
@@ -122,5 +123,4 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			}
 		}
 	}
-	return nil
 }
