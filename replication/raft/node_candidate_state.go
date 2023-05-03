@@ -119,6 +119,9 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		default:
 			for rn.commitIndex > rn.lastApplied {
 				rn.lastApplied++
+				if rn.GetLog(rn.lastApplied) == nil || rn.GetLog(rn.lastApplied).Data == nil {
+					continue
+				}
 				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
 			}
 		}
