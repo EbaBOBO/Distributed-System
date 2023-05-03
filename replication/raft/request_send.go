@@ -7,9 +7,7 @@ import (
 )
 
 func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
-	if init {
-		updateCommitIndex(rn)
-	}
+	rn.log.Print("updateCommitIndex")
 	for nd, _ := range rn.node.PeerNodes {
 		if nd == rn.node.ID {
 			continue
@@ -86,9 +84,11 @@ func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
 			}
 		}(nd)
 	}
+	updateCommitIndex(rn)
 }
 
 func updateCommitIndex(rn *RaftNode) {
+	rn.log.Print("updateCommitIndex")
 	rn.leaderMu.Lock()
 	defer rn.leaderMu.Unlock()
 	// If there exists an N such that N > commitIndex, a majority
