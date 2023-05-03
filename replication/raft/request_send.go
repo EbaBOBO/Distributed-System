@@ -7,7 +7,7 @@ import (
 )
 
 func sendAppendEntries(rn *RaftNode, init bool, higherTermChan chan uint64) {
-	if len(rn.node.PeerConns) == 1 {
+	if init {
 		updateCommitIndex(rn)
 	}
 	for nd, _ := range rn.node.PeerNodes {
