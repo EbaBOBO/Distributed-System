@@ -50,14 +50,13 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 	}
 	// If leaderCommit > commitIndex, set commitIndex =
 	// min(leaderCommit, index of last new entry)
-	lastnewi := appendReq.PrevLogIndex + uint64(len(appendReq.Entries))
+	lastNewIdx := appendReq.PrevLogIndex + uint64(len(appendReq.Entries))
+	rn.log.Printf("lastNewIdx %v, LeaderCommit %v, commitIndex %v", lastNewIdx, appendReq.LeaderCommit, rn.commitIndex)
 	if appendReq.LeaderCommit > rn.commitIndex {
-		if appendReq.LeaderCommit <= rn.LastLogIndex() {
-			rn.log.Printf("handle 53 %v, %v,%v", lastnewi, appendReq.LeaderCommit, rn.commitIndex)
+		if appendReq.LeaderCommit <= lastNewIdx {
 			rn.commitIndex = appendReq.LeaderCommit
 		} else {
-			rn.log.Printf("handle 56 %v, %v,%v", lastnewi, rn.LastLogIndex(), rn.commitIndex)
-			rn.commitIndex = rn.LastLogIndex()
+			rn.commitIndex = lastNewIdx
 		}
 	}
 
