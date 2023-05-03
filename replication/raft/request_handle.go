@@ -64,6 +64,14 @@ func handleAppendEntries(rn *RaftNode, appendReq *pb.AppendEntriesRequest) pb.Ap
 }
 
 func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestVoteReply {
+	if voteReq.From == voteReq.To {
+		return pb.RequestVoteReply{
+			From:        rn.node.ID,
+			To:          voteReq.From,
+			Term:        rn.GetCurrentTerm(),
+			VoteGranted: false,
+		}
+	}
 	// Reply false if term < rn.GetCurrentTerm()
 	if voteReq.Term < rn.GetCurrentTerm() {
 		rn.log.Printf("requestVoteC From %v, To %v, term %v, false", voteReq.From, voteReq.To, voteReq.Term)
