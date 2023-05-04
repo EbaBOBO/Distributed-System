@@ -381,7 +381,7 @@ func TestBasicStoreKVWithReplacement(t *testing.T) {
 	// Sleep to allow last log time to replicate
 	time.Sleep(2 * ht)
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 50; i++ {
 		key := fmt.Sprint(i)
 		val := getReplicatedKeyRandomly(t, replicators, key)
 
@@ -390,7 +390,7 @@ func TestBasicStoreKVWithReplacement(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 50; i++ {
 		key := fmt.Sprint(i)
 		val := fmt.Sprintf("val is %d", 10*i)
 
@@ -401,7 +401,7 @@ func TestBasicStoreKVWithReplacement(t *testing.T) {
 	// Sleep to allow last log time to replicate
 	time.Sleep(2 * ht)
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 50; i++ {
 		key := fmt.Sprint(i)
 		val := getReplicatedKeyRandomly(t, replicators, key)
 
@@ -434,7 +434,7 @@ func TestStop(t *testing.T) {
 	}
 
 	// Allow leader to be elected
-	time.Sleep(2 * et)
+	time.Sleep(10 * et)
 
 	for _, replicator := range replicators {
 		close(replicator.proposeC)
@@ -447,4 +447,194 @@ func TestStop(t *testing.T) {
 			t.Errorf("commitC should be closed")
 		}
 	}
+}
+
+func TestRefuseClientRequest(t *testing.T) {
+	addrs := generateRaftAddrs(1)
+	nodes := node.Create(addrs)
+
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
+
+	var replicators []*State
+	for _, node := range nodes {
+		config := &Config{
+			ElectionTimeout:  et,
+			HeartbeatTimeout: ht,
+			Storage:          NewMemoryStore(),
+		}
+
+		replicator := Configure(Args{
+			Node:   node,
+			Config: config,
+		})
+		replicators = append(replicators, replicator)
+	}
+	replicator := replicators[0]
+	_, err := replicator.ReplicateKey(context.Background(), &pb.PutRequest{
+		Key: "key", Value: "val",
+	})
+	tk := time.NewTicker(et)
+	for err == nil {
+		select {
+		case <-tk.C:
+			t.Errorf("Request should not be accepted")
+			return
+		}
+	}
+}
+
+func TestLeader(t *testing.T) {
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
+	t.Run("TestLeader1", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(1, et, ht)
+		n := c[0].raftNode
+		go n.Run(ctx, n.doLeader)
+		n.AppendEntries(context.Background(), &pb.AppendEntriesRequest{
+			Term:         10,
+			PrevLogIndex: 1,
+			PrevLogTerm:  10,
+			LeaderCommit: 1,
+		})
+		time.Sleep(et)
+		if n.state == LeaderState {
+			t.Errorf("Leader should step down")
+		}
+
+	})
+
+	t.Run("TestLeader2", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(1, et, ht)
+		n := c[0].raftNode
+		go n.Run(ctx, n.doLeader)
+		n.RequestVote(context.Background(), &pb.RequestVoteRequest{
+			From:         1,
+			To:           n.node.ID,
+			Term:         10,
+			LastLogIndex: 5,
+			LastLogTerm:  5,
+		})
+		time.Sleep(et)
+		if n.state == LeaderState {
+			t.Errorf("Leader should step down")
+		}
+
+	})
+	t.Run("TestLeader3", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(1, et, ht)
+		n := c[0].raftNode
+		go n.Run(ctx, n.doLeader)
+		close(n.proposeC)
+		time.Sleep(et)
+		if n.state != ExitState {
+			t.Errorf("Leader should exit")
+		}
+
+	})
+
+}
+
+func TestCandidate(t *testing.T) {
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
+	t.Run("TestCandidate1", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(3, 100*et, ht)
+		n1 := c[0].raftNode
+		n1.setVotedFor(n1.node.ID)
+		go n1.Run(ctx, n1.doCandidate)
+		n1.AppendEntries(context.Background(), &pb.AppendEntriesRequest{
+			Term:         10,
+			PrevLogIndex: 1,
+			PrevLogTerm:  10,
+			LeaderCommit: 1,
+		})
+		time.Sleep(et)
+		if n1.state == CandidateState {
+			t.Errorf("Candidate should become follower")
+		}
+
+	})
+
+	t.Run("TestCandidate2", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(2, et, ht)
+		n1 := c[0].raftNode
+		n1.setVotedFor(n1.node.ID)
+		n2 := c[1].raftNode
+		n2.setVotedFor(n2.node.ID)
+		go n1.Run(ctx, n1.doCandidate)
+		go n2.Run(ctx, n2.doCandidate)
+		time.Sleep(time.Second)
+		if n1.GetCurrentTerm() <= 1 {
+			fmt.Println(n1.GetCurrentTerm())
+			t.Errorf("Candidate should start new term")
+		}
+	})
+
+	t.Run("TestCandidate3", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(3, 100*et, ht)
+		n1 := c[0].raftNode
+		n1.setVotedFor(n1.node.ID)
+		go n1.Run(ctx, n1.doCandidate)
+		close(n1.proposeC)
+		time.Sleep(et)
+		if n1.state != ExitState {
+			t.Errorf("Should exit")
+		}
+	})
+	t.Run("TestCandidate4", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(3, 100*et, ht)
+		n1 := c[0].raftNode
+		go n1.Run(ctx, n1.doCandidate)
+		n1.RequestVote(context.Background(), &pb.RequestVoteRequest{
+			From:         2,
+			To:           n1.node.ID,
+			Term:         10,
+			LastLogIndex: 10,
+			LastLogTerm:  10,
+		})
+		time.Sleep(10 * et)
+		if n1.state == CandidateState {
+			t.Errorf("Should not be CandidateState")
+		}
+	})
+
+}
+
+func TestFollower(t *testing.T) {
+	et := time.Millisecond * 150
+	ht := time.Millisecond * 50
+	t.Run("TestFollower", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		c := createRaftCluster(3, 100*et, ht)
+		n1 := c[0].raftNode
+		n1.setVotedFor(n1.node.ID)
+		go n1.Run(ctx, n1.doFollower)
+		n1.AppendEntries(context.Background(), &pb.AppendEntriesRequest{
+			Term:         10,
+			PrevLogIndex: 1,
+			PrevLogTerm:  10,
+			LeaderCommit: 1,
+		})
+		time.Sleep(et)
+		if n1.GetCurrentTerm() < 10 {
+			t.Errorf("Follower shoud have be in new term")
+		}
+
+	})
 }

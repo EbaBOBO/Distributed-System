@@ -19,9 +19,6 @@ func (rn *RaftNode) doFollower() stateFunction {
 	// possible channel.
 	timeout := time.Duration(float64(rn.electionTimeout) * (1 + rand.Float64()))
 	rn.log.Printf("follower start election timeout, timeout %v", timeout)
-	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
-		panic("timeout is out of range")
-	}
 	t := time.NewTicker(timeout)
 
 	for {
@@ -68,22 +65,13 @@ func (rn *RaftNode) doFollower() stateFunction {
 			leader := pb.NewRaftRPCClient(conn)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			_, err := leader.Propose(ctx, &pb.ProposalRequest{
+			leader.Propose(ctx, &pb.ProposalRequest{
 				From: rn.node.ID,
 				To:   rn.leader,
 				Data: msg,
 			})
-			if err != nil {
-				rn.log.Printf("proposal forwarding error: %v", err)
-			}
 		default:
-			for rn.commitIndex > rn.lastApplied {
-				rn.lastApplied++
-				if rn.GetLog(rn.lastApplied) == nil || rn.GetLog(rn.lastApplied).Data == nil {
-					continue
-				}
-				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-			}
+			handleCommit(rn)
 		}
 	}
 }

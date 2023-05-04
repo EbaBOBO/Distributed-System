@@ -28,9 +28,6 @@ func (rn *RaftNode) doCandidate() stateFunction {
 		return rn.doLeader
 	}
 	timeout := time.Duration(float64(rn.electionTimeout) * (1 + rand.Float64()))
-	if !((timeout >= rn.electionTimeout) && (timeout <= rn.electionTimeout*2)) {
-		panic("timeout is out of range")
-	}
 	t := time.NewTicker(timeout)
 	// Send RequestVoteRPCs to all other servers
 	replyChan := make(chan *pb.RequestVoteReply)
@@ -50,11 +47,10 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				LastLogTerm:  rn.GetLog(rn.LastLogIndex()).Term,
 			}
 			reply, err := remoteNode.RequestVote(ctx, msgReq)
-			if err != nil {
-				rn.log.Printf("RequestVote RPC failed: %v", err)
-				return
+			if err == nil {
+				replyChan <- reply
 			}
-			replyChan <- reply
+
 		}(k, v)
 	}
 	majority := int(len(rn.node.PeerNodes)/2) + 1
@@ -103,7 +99,6 @@ func (rn *RaftNode) doCandidate() stateFunction {
 			msg.reply <- reply
 			rn.log.Printf("appendEntries term: %v, current term: %v", msg.request.Term, rn.GetCurrentTerm())
 			if msg.request.Term >= rn.GetCurrentTerm() {
-				rn.log.Printf("Change to follower state")
 				rn.SetCurrentTerm(msg.request.Term)
 				rn.setVotedFor(None)
 				rn.leader = msg.request.From
@@ -118,13 +113,7 @@ func (rn *RaftNode) doCandidate() stateFunction {
 				return nil
 			}
 		default:
-			for rn.commitIndex > rn.lastApplied {
-				rn.lastApplied++
-				if rn.GetLog(rn.lastApplied) == nil || rn.GetLog(rn.lastApplied).Data == nil {
-					continue
-				}
-				rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
-			}
+			handleCommit(rn)
 		}
 	}
 }

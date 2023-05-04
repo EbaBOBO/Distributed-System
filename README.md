@@ -47,3 +47,17 @@
 
 ``TestOffline`` tests node go offline
 
+## Raft
+### Test Cases
+``TestBasicStoreKVWithReplacement`` replace value and check the correctness
+
+``TestStop`` test stop handling
+
+``TestRefuseClientRequest`` test when there is no leader
+
+``TestLeaderStepDown`` test if leader step down when there is a higher term, and leader stop
+
+``TestCandidate`` Test candidate stop and covert to other state
+
+``TestFollower`` Test follower term change
+

@@ -135,3 +135,13 @@ func handleRequestVote(rn *RaftNode, voteReq *pb.RequestVoteRequest) pb.RequestV
 		}
 	}
 }
+
+func handleCommit(rn *RaftNode) {
+	for rn.commitIndex > rn.lastApplied {
+		rn.lastApplied++
+		if rn.GetLog(rn.lastApplied) == nil || rn.GetLog(rn.lastApplied).Data == nil {
+			continue
+		}
+		rn.commitC <- (*commit)(&rn.GetLog(rn.lastApplied).Data)
+	}
+}
